@@ -1,0 +1,194 @@
+---
+title: "Authentication"
+description: "Login, logout, and session management in Televisión Écija Media Manager"
+---
+
+## Overview
+
+Televisión Écija Media Manager uses JWT (JSON Web Token) based authentication to secure access to media content. All users must authenticate before accessing the system.
+
+## Login Process
+
+The login page (`/login`) is the entry point for all users to access the system.
+
+### How to Login
+
+1. Navigate to the login page at `/login`
+2. Enter your **username** in the "Usuario" field
+3. Enter your **password** in the "Contraseña" field
+4. Click the **"Iniciar Sesión"** button
+
+<Info>
+If you don't have an account, click the **"Crear Cuenta"** button to register a new viewer account.
+</Info>
+
+### Login Workflow
+
+When you submit the login form:
+
+1. The application sends your credentials to `/api/login`
+2. The backend validates your username and password
+3. If successful, you receive a JWT token and user data
+4. The token is stored in localStorage with a 7-day expiration
+5. You're automatically redirected to the home page (`/`)
+
+<Warning>
+If authentication fails, you'll see an error message: **"Usuario o contraseña incorrectos"**
+</Warning>
+
+### Authentication Code Reference
+
+The login component (`front/src/app/login/login.ts:42-68`) handles the authentication flow:
+
+```typescript
+this.auth.login(username, password).subscribe({
+  next: (data) => {
+    if (!data.success) {
+      // Show error display
+      return;
+    }
+    
+    // Store auth session (token expires in 7 days)
+    this.storage.setAuthSession(
+      data.token,
+      data,
+      60 * 60 * 24 * 7
+    );
+    
+    // Redirect to home
+    this.router.navigate(['/']);
+  }
+});
+```
+
+## Session Management
+
+### JWT Token Storage
+
+Your authentication token is stored in **localStorage** under the key `auth_token`. The session includes:
+
+- **Token**: JWT bearer token for API authentication
+- **User data**: Your user ID, username (nombre), and role
+- **Expiration**: Token expires after 7 days of inactivity
+- **Permissions**: Role-based permissions (loaded on demand)
+
+### Token Expiration
+
+The system checks token expiration automatically:
+
+- Tokens are valid for **7 days** (604,800 seconds)
+- The `LocalStorageService` (`front/src/services/localStorage.service.ts:114-118`) validates expiration
+- Expired tokens automatically redirect you to `/login`
+
+### Authentication Guard
+
+All protected routes use the `authGuard` (`front/src/app/guards/auth-guard.ts:5-17`) to verify authentication:
+
+```typescript
+if (storage.isAuthenticated()) {
+  return true;
+}
+
+// Clear session and redirect to login
+storage.clearAuthSession();
+storage.clear();
+router.navigate(['/login']);
+```
+
+## HTTP Request Authentication
+
+Every API request automatically includes your JWT token via the `authInterceptor` (`front/src/app/interceptors/auth.interceptor.ts:5-19`):
+
+```typescript
+const token = storage.getToken();
+
+if (token) {
+  req = req.clone({
+    setHeaders: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+}
+```
+
+<Info>
+You don't need to manually add the Authorization header - it's handled automatically for all HTTP requests.
+</Info>
+
+## Logout
+
+To log out of the system:
+
+1. Click your username in the header navigation
+2. Select **"Cerrar Sesión"** from the dropdown menu
+
+The logout process (`front/src/services/auth.service.ts:108-112`):
+
+1. Clears your JWT token from localStorage
+2. Removes all user data from the session
+3. Redirects you to the `/login` page
+
+## User Registration
+
+New users can create a **viewer** account:
+
+1. Click **"Crear Cuenta"** on the login page
+2. Navigate to `/register`
+3. Enter a username and password (minimum 4 characters)
+4. Submit the form
+
+<Note>
+New accounts are automatically assigned the **viewer** role with read-only permissions. Only administrators can upgrade roles.
+</Note>
+
+## Role-Based Access
+
+After login, your role determines which features you can access:
+
+- **Admin**: Full system access, user management, media management
+- **Moderator**: Upload, edit, and delete media content
+- **Viewer**: Browse and download media only
+
+The `roleGuard` (`front/src/app/guards/role-guard.ts:7-51`) enforces role-based access to protected routes.
+
+## Session Refresh
+
+The system automatically refreshes your user role and permissions when:
+
+- You navigate to a protected page
+- The application checks your permissions for specific actions
+- You perform actions that require permission validation
+
+This is handled by `refreshUserRole()` (`front/src/services/auth.service.ts:72-95`) which fetches the latest user data from `/api/user/role`.
+
+## Security Best Practices
+
+<Warning>
+**Never share your authentication token** - it provides full access to your account for 7 days.
+</Warning>
+
+- Use a strong password (minimum 4 characters, but longer is recommended)
+- Log out when using shared computers
+- Your session automatically expires after 7 days
+- All passwords are hashed using bcrypt with salt rounds
+
+## Troubleshooting
+
+### Cannot Login
+
+- Verify your username and password are correct
+- Check if your account has been disabled by an administrator
+- Clear your browser cache and localStorage
+- Contact your system administrator if issues persist
+
+### Session Expired
+
+- You'll be automatically redirected to `/login`
+- Log in again to create a new session
+- Your 7-day session timer resets on each login
+
+### Unauthorized Access
+
+- If you see a redirect to `/login`, your token may be invalid or expired
+- Check the browser console for authentication errors
+- Try logging out and logging back in

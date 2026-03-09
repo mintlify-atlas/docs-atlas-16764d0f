@@ -1,0 +1,235 @@
+---
+title: "Download Media File"
+api: "GET /api/files/:id/download"
+description: "Download the original media file with proper content type"
+---
+
+## Overview
+
+This endpoint enables downloading of the original media file. It retrieves the file path from the database, determines the correct MIME type, and streams the file to the client with appropriate headers for download.
+
+## Authentication
+
+**No authentication required.** This endpoint is publicly accessible.
+
+<Warning>
+This endpoint does not require authentication. Consider implementing authentication or access controls based on your security requirements.
+</Warning>
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the media item to download
+</ParamField>
+
+## SQL Query
+
+```sql
+SELECT media_path, filename FROM media_items WHERE id = ?
+```
+
+## Response
+
+The response is the raw file content with appropriate headers:
+
+### Response Headers
+
+<ResponseField name="Content-Type" type="string">
+  MIME type determined from file extension (e.g., `video/mp4`, `image/jpeg`, `application/pdf`)
+</ResponseField>
+
+<ResponseField name="Content-Disposition" type="string">
+  Set to `attachment; filename="{filename}"` to trigger browser download
+</ResponseField>
+
+### Content
+
+Raw binary file content streamed from the file system.
+
+## MIME Type Detection
+
+The endpoint uses the `mime-types` library to determine the correct Content-Type header based on the file extension:
+
+| File Extension | MIME Type | Example |
+|----------------|-----------|----------|
+| .mp4 | video/mp4 | Videos |
+| .jpg, .jpeg | image/jpeg | Photos |
+| .png | image/png | Images |
+| .pdf | application/pdf | Documents |
+| .doc, .docx | application/msword | Word documents |
+| .mp3 | audio/mpeg | Audio files |
+| (unknown) | application/octet-stream | Default fallback |
+
+## Example Request
+
+```bash
+curl -X GET https://api.example.com/api/files/42/download \
+  -o downloaded_file.mp4
+```
+
+## Example with wget
+
+```bash
+wget https://api.example.com/api/files/42/download
+```
+
+## Browser Behavior
+
+When accessed from a browser, the `Content-Disposition: attachment` header triggers a download dialog with the original filename:
+
+```
+Content-Disposition: attachment; filename="1709989200000_interview.mp4"
+```
+
+The browser will:
+1. Open a "Save As" dialog
+2. Pre-fill the filename with the original name
+3. Download the file to the user's designated download folder
+
+## Example Response Headers
+
+```http
+HTTP/1.1 200 OK
+Content-Type: video/mp4
+Content-Disposition: attachment; filename="1709989200000_interview.mp4"
+Content-Length: 52428800
+Date: Mon, 09 Mar 2026 10:30:00 GMT
+```
+
+## Error Responses
+
+### 404 Not Found
+```json
+{
+  "error": "Archivo no encontrado"
+}
+```
+Returned when:
+- The specified media item ID does not exist in the database
+- The database record exists but the file is missing from the file system
+
+### 500 Internal Server Error
+Returned when:
+- Database connection fails
+- File system read error occurs
+- File permissions prevent access
+
+## File Streaming
+
+The endpoint uses Express's `res.download()` method, which:
+
+1. **Streams the file**: Doesn't load the entire file into memory
+2. **Handles large files**: Efficiently serves files of any size
+3. **Sets headers automatically**: Content-Type, Content-Disposition, Content-Length
+4. **Supports range requests**: Enables partial downloads and resume capability
+5. **Error handling**: Catches file system errors and returns appropriate responses
+
+## Implementation Details
+
+### File Path Resolution
+
+The `media_path` stored in the database is the **absolute path** to the file:
+
+```javascript
+// Example media_path from database
+/var/media/1709989200000_interview.mp4
+```
+
+This path is passed directly to `res.download()`.
+
+### Filename Preservation
+
+The original filename (with timestamp prefix) is used in the download:
+
+```javascript
+res.download(filePath, filename);
+```
+
+This ensures users can identify when the file was uploaded based on the timestamp prefix.
+
+## Security Considerations
+
+### No Authentication
+
+<Warning>
+This endpoint is **publicly accessible** without authentication. Anyone with the media item ID can download the file.
+</Warning>
+
+Consider implementing:
+
+1. **Token-based access**: Require authentication token
+2. **Permission checks**: Verify user has download permissions
+3. **Signed URLs**: Generate time-limited download URLs
+4. **Rate limiting**: Prevent abuse and excessive downloads
+
+### Path Traversal Protection
+
+The endpoint is protected against path traversal attacks because:
+- The file path comes from the database, not user input
+- The ID parameter is validated as an integer
+- No path concatenation with user-supplied values occurs
+
+## Use Cases
+
+- **Content Distribution**: Allow users to download archived media
+- **Backup**: Enable users to backup their uploads
+- **Offline Viewing**: Download videos for offline playback
+- **Sharing**: Direct links to files for sharing purposes
+- **Integration**: Programmatic access to media files from external systems
+
+## Performance Considerations
+
+### Large File Handling
+
+For very large files (>100 MB), consider:
+
+1. **CDN integration**: Serve files through a CDN for better performance
+2. **Direct storage URLs**: Use signed URLs to cloud storage (S3, GCS)
+3. **Chunked encoding**: Enable HTTP chunked transfer encoding
+4. **Bandwidth limiting**: Implement rate limiting per connection
+
+### Concurrent Downloads
+
+Monitor server resources when multiple users download large files simultaneously:
+
+- **File descriptor limits**: Ensure system ulimit is sufficient
+- **Network bandwidth**: Monitor and limit total bandwidth usage
+- **Disk I/O**: Consider SSD storage for high-traffic scenarios
+
+## Example Integration (JavaScript)
+
+```javascript
+// Fetch and download file
+async function downloadMedia(mediaId) {
+  const response = await fetch(`https://api.example.com/api/files/${mediaId}/download`);
+  
+  if (!response.ok) {
+    throw new Error('Download failed');
+  }
+  
+  // Get filename from Content-Disposition header
+  const contentDisposition = response.headers.get('Content-Disposition');
+  const filename = contentDisposition
+    ? contentDisposition.split('filename="')[1].split('"')[0]
+    : 'download';
+  
+  // Create blob and download
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+```
+
+## Monitoring
+
+Track these metrics for the download endpoint:
+
+- **Download count**: Number of successful downloads
+- **Failed downloads**: 404 and 500 error rates
+- **Bandwidth usage**: Total data transferred
+- **Average file size**: Mean size of downloaded files
+- **Popular content**: Most frequently downloaded items

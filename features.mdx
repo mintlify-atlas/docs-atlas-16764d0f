@@ -1,0 +1,583 @@
+---
+title: Key Features
+description: Comprehensive guide to all 8 key features of Televisión Écija Media Manager, from advanced search to automated backups.
+---
+
+## Overview
+
+Televisión Écija Media Manager provides 8 essential features designed specifically for broadcast media management. Each feature addresses real challenges faced by media organizations managing distributed content.
+
+## 1. Advanced Search & Filtering
+
+### Multi-Field Search
+
+Search across multiple metadata fields simultaneously:
+
+```javascript
+// From: api/main.js:288-292
+if (search) {
+    query += " AND (m.title LIKE ? OR m.description LIKE ? OR m.tags LIKE ?)";
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern);
+}
+```
+
+The search engine indexes:
+- **Title**: Media item names and identifiers
+- **Description**: Full-text content descriptions
+- **Tags**: Comma-separated custom tags
+- **Authors**: Creator and contributor names
+
+### Dynamic Filtering
+
+Filter content by multiple dimensions:
+
+<CardGroup cols={2}>
+  <Card title="Media Type">
+    Filter by video, image, audio, or document types
+  </Card>
+  <Card title="Publication Year">
+    Organize content chronologically by recording or publication date
+  </Card>
+  <Card title="Author">
+    Find all content from specific contributors
+  </Card>
+  <Card title="Storage Location">
+    Browse content by physical storage location
+  </Card>
+</CardGroup>
+
+### Flexible Sorting
+
+Multiple sorting options for different workflows:
+
+```javascript
+// From: api/main.js:329-345
+let orderSentence = '';
+switch (order) {
+    case 'masReciente':
+        orderSentence = 'm.publication_year DESC, m.date_added DESC';
+        break;
+    case 'masAntiguo':
+        orderSentence = 'm.publication_year ASC, m.date_added ASC';
+        break;
+    case 'nombreAZ':
+        orderSentence = 'm.title ASC';
+        break;
+    case 'nombreZA':
+        orderSentence = 'm.title DESC';
+        break;
+    default:
+        orderSentence = 'm.date_added DESC';
+        break;
+}
+```
+
+<Note>
+  Sorting combines publication year with upload date to maintain chronological accuracy for historical content.
+</Note>
+
+## 2. Distributed Storage Management
+
+### Multiple Storage Locations
+
+Register and manage different physical storage paths:
+
+```javascript
+// From: api/main.js:899-929
+app.get('/api/locations', verifyToken, async (req, res) => {
+    try {
+        const [rows] = await connection.promise().query(
+            "SELECT id, path FROM media_locations ORDER BY path ASC"
+        );
+
+        // If no locations exist, create default base path
+        if (rows.length === 0) {
+            const basePath = mediaPath || path.join(__dirname, "media");
+            if (!fs.existsSync(basePath)) fs.mkdirSync(basePath, { recursive: true });
+
+            const [result] = await connection.promise().query(
+                "INSERT INTO media_locations (path) VALUES (?)",
+                [basePath]
+            );
+
+            return res.json({
+                success: true,
+                locations: [{ id: result.insertId, path: basePath }]
+            });
+        }
+
+        res.json({
+            success: true,
+            locations: rows
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+```
+
+### Database Schema for Distributed Files
+
+```sql
+-- From: db/init.sql:32-46
+CREATE TABLE media_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title TEXT,
+    description TEXT,
+    publication_year INT /* -> 2023 */,
+    media_path TEXT, /* -> /disk0/2023/grabacion.mp4 */
+    filename TEXT, /* -> grabacion.mp4 */
+    media_type_id INT, /* -> id:1 -> Cortometraje */
+    media_location_id INT, /* -> id:3 -> /disk0/2023/ */
+    tags TEXT, /* -> "tag1,tag2,tag3" */
+    date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (media_location_id) REFERENCES media_locations(id) ON DELETE CASCADE,
+    FOREIGN KEY (media_type_id) REFERENCES media_types(id) ON DELETE SET NULL
+);
+```
+
+### Location Management UI
+
+Admins can manage storage paths through the dashboard:
+
+```typescript
+// From: front/src/app/dashboard/dashboard.ts:43-55
+loadLocations() {
+    this.file.getMediaLocations().subscribe(data => {
+        this.locations = data.locations;
+        this.tree = this.buildTree(data.locations);
+        this.cdr.markForCheck();
+    });
+}
+
+createFolder() {
+    this.modalService.open(RouteModalComponent, {
+        title: "Crear Ruta",
+        data: {
+            path: "",
+            onResult: (res: string) => {
+                this.file.createMediaLocation(res.trim()).subscribe(() => {
+                    this.loadLocations();
+                });
+            }
+        }
+    })
+}
+```
+
+## 3. Automated Video Thumbnails
+
+### FFmpeg Integration
+
+Automatically generate thumbnails for video files on-demand:
+
+```javascript
+// From: api/main.js:554-587
+app.get('/api/files/:id/thumbnail', async (req, res) => {
+    try {
+        const [rows] = await connection.promise().query(
+            "SELECT media_path, filename FROM media_items WHERE id = ?",
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: "Archivo no encontrado" });
+
+        const mediaPath = rows[0].media_path;
+        const thumbnailPath = mediaPath + "_thumbnail.jpg";
+        
+        // Return cached thumbnail if exists
+        if (fs.existsSync(thumbnailPath)) {
+            return res.sendFile(thumbnailPath);
+        }
+
+        // Generate new thumbnail
+        if (fs.existsSync(mediaPath)) {
+            execFile(ffmpegPath, [
+                '-i', mediaPath,
+                '-ss', '00:00:01.000',
+                '-vframes', '1',
+                thumbnailPath
+            ], (error) => {
+                if (error) {
+                    console.error('Error generando thumbnail:', error);
+                    return res.status(500).json({ error: "Error generando thumbnail" });
+                }
+                res.sendFile(thumbnailPath);
+            });
+        } else {
+            res.status(404).json({ error: "Archivo de video no encontrado para generar thumbnail" });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+```
+
+<Info>
+  Thumbnails are cached on disk (filename + "_thumbnail.jpg") to avoid regenerating them on every request, improving performance for frequently accessed videos.
+</Info>
+
+## 4. Role-Based Access Control
+
+### Three-Tier Permission System
+
+```javascript
+// From: api/main.js:516-551
+function getPermissionsByRole(rol) {
+    const permissions = {
+        admin: {
+            canUpload: true,
+            canDelete: true,
+            canEdit: true,
+            canDownload: true,
+            canManageUsers: true,
+            canViewAllContent: true,
+            role: 'admin',
+            level: 3
+        },
+        moderator: {
+            canUpload: true,
+            canDelete: false,
+            canEdit: true,
+            canDownload: true,
+            canManageUsers: false,
+            canViewAllContent: true,
+            role: 'moderator',
+            level: 2
+        },
+        viewer: {
+            canUpload: false,
+            canDelete: false,
+            canEdit: false,
+            canDownload: false,
+            canManageUsers: false,
+            canViewAllContent: true,
+            role: 'viewer',
+            level: 1
+        }
+    };
+
+    return permissions[rol] || permissions.viewer;
+}
+```
+
+### Permission Enforcement
+
+Endpoints check permissions before executing operations:
+
+```javascript
+// From: api/main.js:169-172
+app.post('/api/upload-content', verifyToken, upload.single("file"), async (req, res) => {
+    if (req.user.rol === "viewer")
+        return res.status(403).json({ error: "No tienes permisos para subir contenido" });
+    // ... upload logic
+});
+```
+
+### Frontend Permission Checks
+
+```typescript
+// From: front/src/services/auth.service.ts:149-158
+hasPermission(permission: keyof UserPermissions): boolean {
+    const user = this.getCurrentUser();
+
+    if (!user || !user.permissions) {
+        this.refreshUserRole().subscribe();
+        return false;
+    }
+
+    return user.permissions[permission] === true;
+}
+```
+
+## 5. Multi-Author Attribution
+
+### Many-to-Many Relationships
+
+Content can have multiple authors, and authors can create multiple pieces:
+
+```sql
+-- From: db/init.sql:48-54
+CREATE TABLE media_author (
+    media_id INT,
+    user_id INT,
+    PRIMARY KEY (media_id, user_id),
+    FOREIGN KEY (media_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id_user) ON DELETE CASCADE
+);
+```
+
+### Author Assignment on Upload
+
+```javascript
+// From: api/main.js:220-236
+// Insert authors
+if (author_ids) {
+    const authorIdsArray =
+        Array.isArray(author_ids)
+            ? author_ids
+            : JSON.parse(author_ids);
+
+    for (const authorId of authorIdsArray) {
+        await connection.promise().query(
+            "INSERT INTO media_author (media_id, user_id) VALUES (?, ?)",
+            [mediaId, authorId]
+        );
+    }
+}
+```
+
+### Querying with Authors
+
+```javascript
+// From: api/main.js:264-283
+SELECT 
+    m.id,
+    m.title,
+    m.description,
+    m.publication_year,
+    m.media_path,
+    m.filename,
+    m.tags,
+    m.date_added,
+    m.date_updated,
+    ct.name AS media_type,
+    ml.path AS location_path,
+    GROUP_CONCAT(DISTINCT a.nombre) AS authors,
+    GROUP_CONCAT(DISTINCT a.id_user) AS author_ids
+FROM media_items m
+LEFT JOIN media_types ct ON m.media_type_id = ct.id
+LEFT JOIN media_locations ml ON m.media_location_id = ml.id
+LEFT JOIN media_author ma ON m.id = ma.media_id
+LEFT JOIN users a ON ma.user_id = a.id_user
+WHERE 1=1
+```
+
+## 6. Comprehensive Statistics
+
+### Dashboard Analytics
+
+Real-time statistics across multiple dimensions:
+
+```javascript
+// From: api/main.js:590-682
+app.get('/api/stats', verifyToken, async (req, res) => {
+    try {
+        // Total count
+        const [total] = await connection.promise().query(
+            "SELECT COUNT(*) as total FROM media_items"
+        );
+
+        // By media type
+        const [byType] = await connection.promise().query(`
+            SELECT ct.name, COUNT(*) as total
+            FROM media_items m
+            JOIN media_types ct ON m.media_type_id = ct.id
+            GROUP BY ct.name
+        `);
+
+        // By publication year
+        const [byYear] = await connection.promise().query(`
+            SELECT publication_year, COUNT(*) as total
+            FROM media_items
+            WHERE publication_year IS NOT NULL
+            GROUP BY publication_year
+            ORDER BY publication_year DESC
+        `);
+
+        // Storage statistics
+        let totalBytes = 0;
+        const [files] = await connection.promise().query(
+            "SELECT media_path FROM media_items"
+        );
+
+        for (const file of files) {
+            if (fs.existsSync(file.media_path)) {
+                const stats = fs.statSync(file.media_path);
+                totalBytes += stats.size;
+            }
+        }
+
+        res.json({
+            success: true,
+            stats: {
+                total: total[0].total,
+                byType,
+                byYear,
+                storage: {
+                    bytes: totalBytes,
+                    formatted: formatBytes(totalBytes)
+                }
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+```
+
+<CardGroup cols={2}>
+  <Card title="Content Metrics">
+    Total items, breakdowns by type and year
+  </Card>
+  <Card title="Storage Usage">
+    Actual disk space used, formatted for readability
+  </Card>
+  <Card title="Type Distribution">
+    How many videos, images, audio files, etc.
+  </Card>
+  <Card title="Historical Trends">
+    Content organized by publication year
+  </Card>
+</CardGroup>
+
+## 7. Pagination & Performance
+
+### Efficient Large Dataset Handling
+
+```javascript
+// From: api/main.js:318-387
+app.get('/api/files/paginated', verifyToken, async (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    const order = req.query.order || 'masReciente';
+    const type = req.query.type || 0;
+
+    const offset = (page - 1) * limit;
+
+    const [rows] = await connection.promise().query(`
+        SELECT 
+            m.*,
+            ct.name AS media_type,
+            ml.path AS location_path,
+            GROUP_CONCAT(DISTINCT a.nombre) AS authors,
+            GROUP_CONCAT(DISTINCT a.id_user) AS author_ids
+        FROM media_items m
+        LEFT JOIN media_types ct ON m.media_type_id = ct.id
+        LEFT JOIN media_locations ml ON m.media_location_id = ml.id
+        LEFT JOIN media_author ma ON m.id = ma.media_id
+        LEFT JOIN users a ON ma.user_id = a.id_user
+        WHERE (m.title LIKE ? OR m.description LIKE ? OR m.tags LIKE ?)
+        ${type != 0 ? `AND m.media_type_id = ${type}` : ''}
+        GROUP BY m.id
+        ORDER BY ${orderSentence}
+        LIMIT ? OFFSET ?
+    `, [`%${search}%`, `%${search}%`, `%${search}%`, limit, offset]);
+
+    const [count] = await connection.promise().query(
+        "SELECT COUNT(*) as total FROM media_items"
+    );
+
+    res.json({
+        success: true,
+        data: processedRows,
+        pagination: {
+            page,
+            limit,
+            total: count[0].total,
+            pages: Math.ceil(count[0].total / limit)
+        }
+    });
+});
+```
+
+### Frontend Pagination Service
+
+```typescript
+// From: front/src/services/file.service.ts:43-66
+getMediaPaginated(
+    page: number,
+    limit: number,
+    search: string = '',
+    order: string,
+    selectedType: number
+): Observable<PaginatedResponse> {
+
+    let params = new HttpParams()
+        .set('page', page.toString())
+        .set('limit', limit.toString());
+
+    if (search) params = params.set('search', search);
+    if (order) params = params.set('order', order);
+    if (selectedType != 0) params = params.set('type', selectedType);
+
+    return this.http.get<PaginatedResponse>(
+        `${this.API}/files/paginated`,
+        {
+            headers: this.getHeaders(),
+            params
+        }
+    );
+}
+```
+
+<Warning>
+  With the 10.8 MB CSV dataset, pagination is essential for maintaining responsive UI performance when dealing with thousands of media items.
+</Warning>
+
+## 8. Automated Database Backups
+
+### Scheduled Backup Service
+
+```yaml
+# From: docker-compose.yml:62-81
+db_backup:
+  image: alpine:latest
+  container_name: file_manager_backup
+  restart: unless-stopped
+  volumes:
+    - mysql_data:/backup/mysql:ro
+    - ./db/backups:/backups
+  entrypoint: |
+    sh -c "
+    apk add --no-cache mysql-client
+    while true; do
+      mysqldump -h database -u root -proot administradorMultimedia > /backups/backup_\$(date +%Y%m%d_%H%M%S).sql 2>/backups/error.log || echo 'Error en backup' > /backups/backup_error.log
+      ls -tp /backups/*.sql 2>/dev/null | tail -n +8 | xargs -I {} rm -- {} 2>/dev/null
+      sleep 86400
+    done
+    "
+  depends_on:
+    - database
+  networks:
+    - file_manager_network
+```
+
+### Backup Features
+
+<CardGroup cols={2}>
+  <Card title="Daily Backups">
+    Automatic SQL dumps every 24 hours
+  </Card>
+  <Card title="Retention Policy">
+    Keeps last 7 backups, automatically removes older files
+  </Card>
+  <Card title="Error Logging">
+    Backup errors logged to /backups/error.log
+  </Card>
+  <Card title="Volume Persistence">
+    Backups saved outside container for safety
+  </Card>
+</CardGroup>
+
+<Info>
+  Backup files are timestamped (YYYYMMDD_HHMMSS.sql) and stored in `db/backups/` on the host machine, ensuring data safety even if containers are destroyed.
+</Info>
+
+## Feature Interactions
+
+These features work together seamlessly:
+
+1. **Search + Pagination**: Advanced search results are paginated for performance
+2. **RBAC + Storage Management**: Only admins/moderators can create storage locations
+3. **Authors + Search**: Search includes author names for comprehensive discovery
+4. **Thumbnails + Statistics**: Video thumbnail generation tracked in storage stats
+5. **Backups + Locations**: Backup service ensures location metadata is never lost
+
+## Next Steps
+
+<Card title="Architecture Deep Dive" icon="diagram-project" href="/architecture">
+  Learn how these features are implemented across the three-tier architecture
+</Card>

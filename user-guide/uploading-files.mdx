@@ -1,0 +1,305 @@
+---
+title: "Uploading Files"
+description: "How to upload media files, set metadata, and organize content in Televisión Écija Media Manager"
+---
+
+## Overview
+
+The file upload feature allows users with appropriate permissions to add new media content to the system. This guide covers the complete upload workflow from the Angular frontend.
+
+## Prerequisites
+
+<Warning>
+Only users with the **`canUpload`** permission can upload files. This includes:
+- **Admin** role
+- **Moderator** role
+
+Viewers cannot upload content.
+</Warning>
+
+## Upload Interface
+
+The upload button is located in the main search panel (`front/src/app/index/page.html:100-109`):
+
+```html
+<button class="button button-primary" 
+        [class]="canUploadContent ? 'a-admin' : 'a-admin disabled'"
+        (click)="canUploadContent ? openModal() : ''">
+  <svg><!-- Upload icon --></svg>
+  Subir Contenido
+</button>
+```
+
+<Info>
+The button is **disabled** (grayed out) if you don't have upload permissions.
+</Info>
+
+## Opening the Upload Modal
+
+1. Click the **"Subir Contenido"** button in the top toolbar
+2. The upload modal appears with the title **"Registrar Nuevo Contenido"**
+3. Complete all required fields
+4. Submit to upload your file
+
+The modal is opened via `IndexPage.openModal()` (`front/src/app/index/index.ts:132-179`).
+
+## Upload Form Fields
+
+The upload form (`front/src/app/modals/new-file.modal.ts:18-206`) includes the following fields:
+
+### 1. File Selection
+
+**Drag-and-drop or click to select:**
+
+- Click the **drag area** to open the file picker
+- Or **drag a file** directly into the drop zone
+- Shows a preview of the selected filename
+
+```typescript
+// File selection handler (line 486-493)
+onFileSelected(event: any) {
+  const file = event.target.files[0];
+  if (!file) return;
+  this.selectedFile = file;
+}
+```
+
+<Note>
+The interface supports **both click-to-upload and drag-and-drop** workflows for convenience.
+</Note>
+
+### 2. Content Type
+
+**Required field** - Select the media type:
+
+- Dropdown populated from the `media_types` database table
+- Examples: "Cortometraje", "Documental", "Entrevista", etc.
+- Content types are loaded from `/api/media-type`
+
+### 3. Title
+
+**Required field** - Enter a descriptive title:
+
+- Plain text input
+- This is the primary display name for your media
+- Should be clear and descriptive
+
+### 4. Description
+
+**Optional field** - Add a detailed description:
+
+- Multi-line textarea (3 rows)
+- Describe the content, context, or purpose
+- Displayed on media cards and detail views
+
+### 5. Publication Year
+
+**Optional field** - Enter the year of publication:
+
+- Number input
+- Four-digit year (e.g., 2023)
+- Used for filtering and sorting
+
+### 6. Storage Location
+
+**Required field** - Select where to store the file:
+
+- Dropdown populated from `media_locations` table
+- Examples: `/disk0/2023/`, `/archive/videos/`
+- Only administrators can create new storage locations
+
+<Info>
+Storage locations are managed in the **Admin Dashboard** (`/dashboard`).
+</Info>
+
+### 7. Tags
+
+**Optional field** - Add searchable tags:
+
+- Type a tag and press **Enter** or click **"Agregar"**
+- Tags are displayed as removable chips
+- Click the **×** button to remove a tag
+- Tags are stored as comma-separated values
+
+```typescript
+// Tag management (lines 520-532)
+addTag() {
+  const tag = this.tagInput.trim();
+  if (!tag) return;
+  this.tags.push(tag);
+  this.tagInput = '';
+}
+
+removeTag(tag: string) {
+  this.tags = this.tags.filter(t => t !== tag);
+}
+```
+
+## Supported File Formats
+
+The system detects file types based on extensions (`front/src/services/file.service.ts:158-177`):
+
+### Video Files
+- `.mp4` - MPEG-4 video
+- `.webm` - WebM video
+- `.mov` - QuickTime movie
+- `.avi` - Audio Video Interleave
+- `.mkv` - Matroska video
+
+### Image Files
+- `.jpg` / `.jpeg` - JPEG images
+- `.png` - Portable Network Graphics
+- `.gif` - Graphics Interchange Format
+- `.webp` - WebP images
+- `.bmp` - Bitmap images
+- `.svg` - Scalable Vector Graphics
+
+### Audio Files
+- `.mp3` - MPEG Audio Layer 3
+- `.wav` - Waveform Audio
+- `.ogg` - Ogg Vorbis
+- `.flac` - Free Lossless Audio Codec
+- `.m4a` - MPEG-4 Audio
+
+### Document Files
+- `.pdf` - Portable Document Format
+- `.doc` / `.docx` - Microsoft Word
+- `.xls` / `.xlsx` - Microsoft Excel
+- `.ppt` / `.pptx` - Microsoft PowerPoint
+- `.txt` / `.csv` / `.md` / `.rtf` - Text documents
+
+<Warning>
+While the frontend accepts these formats, the backend may have additional restrictions. Check with your system administrator for file size limits.
+</Warning>
+
+## Upload Process
+
+When you submit the upload form (`front/src/app/modals/new-file.modal.ts:588-606`):
+
+### 1. Form Data Construction
+
+```typescript
+const formData = new FormData();
+
+if (this.selectedFile)
+  formData.append('file', this.selectedFile);
+
+formData.append('title', this.title);
+formData.append('description', this.description);
+
+if (this.publicationYear)
+  formData.append('publication_year', String(this.publicationYear));
+
+if (this.selectedTypeId)
+  formData.append('media_type_id', String(this.selectedTypeId));
+
+if (this.storageLocationId)
+  formData.append('media_location_id', String(this.storageLocationId));
+
+if (this.tags.length)
+  formData.append('tags', this.tags.toString());
+```
+
+### 2. API Request
+
+The form data is sent to `/api/upload-content` via POST:
+
+```typescript
+this.fileService.createMedia(formData).subscribe({
+  next: () => {
+    this.modalRef?.close({ success: true });
+    this.cdr.detectChanges();
+    window.location.reload();
+  },
+  error: () => {
+    this.isLoading = false;
+    alert('Error creando contenido');
+  }
+});
+```
+
+### 3. Response Handling
+
+- **Success**: The modal closes, statistics refresh, and the page reloads to show the new file
+- **Error**: An alert displays "Error creando contenido"
+
+<Note>
+The page automatically reloads after a successful upload to refresh the media grid with the new content.
+</Note>
+
+## File Metadata Storage
+
+Uploaded files are stored with metadata in the `media_items` table (`source/db/init.sql:32-46`):
+
+```sql
+CREATE TABLE media_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title TEXT,
+    description TEXT,
+    publication_year INT,
+    media_path TEXT,              -- Full file path
+    filename TEXT,                -- Original filename
+    media_type_id INT,            -- FK to media_types
+    media_location_id INT,        -- FK to media_locations
+    tags TEXT,                    -- Comma-separated tags
+    date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (media_location_id) REFERENCES media_locations(id) ON DELETE CASCADE,
+    FOREIGN KEY (media_type_id) REFERENCES media_types(id) ON DELETE SET NULL
+);
+```
+
+## After Upload
+
+Once your file is uploaded:
+
+1. The file appears in the **main media grid**
+2. **Statistics** are updated (total files, storage used)
+3. The file is **searchable** by title, description, and tags
+4. **Thumbnails** are generated automatically for images and videos
+5. The file is available for **download, edit, and delete** (based on permissions)
+
+## Upload Limitations
+
+<Warning>
+**Important Restrictions:**
+- Only users with `canUpload` permission can upload
+- File size limits may apply (configured server-side)
+- Storage locations must exist before upload
+- Content types must be predefined by administrators
+</Warning>
+
+## Troubleshooting
+
+### Upload Button Disabled
+
+- **Cause**: You don't have the `canUpload` permission
+- **Solution**: Contact an administrator to upgrade your role to Moderator or Admin
+
+### Error: "Error creando contenido"
+
+- **Possible causes**:
+  - File size exceeds server limits
+  - Storage location is full or inaccessible
+  - Network error during upload
+  - Invalid file format
+- **Solution**: Check the browser console for detailed errors and contact your administrator
+
+### Missing Storage Locations
+
+- **Cause**: No storage locations have been created
+- **Solution**: An administrator must create storage locations in the Dashboard (`/dashboard`)
+
+### Tags Not Saving
+
+- **Cause**: Tags must be added using Enter or the "Agregar" button
+- **Solution**: Press Enter after typing each tag, don't just type and submit
+
+## Best Practices
+
+- **Use descriptive titles** - Make it easy to find files later
+- **Add detailed descriptions** - Include context, dates, and relevant information
+- **Tag consistently** - Use standard tags across similar content
+- **Choose the correct content type** - This helps with filtering and organization
+- **Verify the storage location** - Ensure you're uploading to the correct folder
+- **Check file size** - Large files may take time to upload

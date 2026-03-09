@@ -1,0 +1,320 @@
+---
+title: User Management
+description: Create, edit, and delete users through the administration dashboard
+---
+
+<Warning>
+  **Admin-Only Feature** 
+  
+  User management operations require administrator privileges. Only users with the `admin` role can access these features.
+</Warning>
+
+The user management system allows administrators to control access to the Televisión Écija Media Manager platform. All user operations are performed through the administration dashboard at `/dashboard`.
+
+## User Roles
+
+The platform supports three distinct user roles with different permission levels:
+
+<AccordionGroup>
+  <Accordion title="Admin" icon="crown">
+    **Full system access**
+    - Upload and edit content
+    - Delete files and media items
+    - Manage users (create, edit, delete)
+    - Manage storage locations
+    - Create and manage media types
+    - View all statistics
+    
+    Permission level: 3
+  </Accordion>
+  
+  <Accordion title="Moderator" icon="shield">
+    **Advanced user with editing capabilities**
+    - Upload content
+    - Edit existing media items
+    - Download files
+    - Create storage locations and media types
+    - View all content
+    
+    **Cannot**: Delete content or manage users
+    
+    Permission level: 2
+  </Accordion>
+  
+  <Accordion title="Viewer" icon="eye">
+    **Read-only access**
+    - Browse and search media catalog
+    - View media details and metadata
+    - View statistics
+    
+    **Cannot**: Upload, edit, delete, or download content
+    
+    Permission level: 1
+  </Accordion>
+</AccordionGroup>
+
+## Accessing User Management
+
+Navigate to the administration dashboard to manage users:
+
+<Steps>
+  <Step title="Navigate to Dashboard">
+    Log in with an admin account and navigate to `/dashboard` or click the administration link in the navigation menu.
+  </Step>
+  
+  <Step title="Locate Users Section">
+    The "Usuarios del Sistema" (System Users) section appears at the top of the dashboard, displaying all registered users in a table format.
+  </Step>
+</Steps>
+
+## Creating a New User
+
+<Steps>
+  <Step title="Open Create User Modal">
+    Click the **"Crear Usuario"** (Create User) button in the Users section header.
+    
+    The user creation modal will appear with a form to enter user details.
+  </Step>
+  
+  <Step title="Enter User Details">
+    Fill in the required fields:
+    
+    - **Nombre de Usuario** (Username): Unique username for login (required)
+    - **Contraseña** (Password): Minimum 6 characters (required)
+    - **Rol de Usuario** (User Role): Select from admin, moderator, or viewer (required)
+    
+    <Info>Usernames must be unique. The system will reject duplicate usernames.</Info>
+  </Step>
+  
+  <Step title="Submit the Form">
+    Click **"Crear Usuario"** to create the new user account.
+    
+    The user will immediately be able to log in with their credentials.
+  </Step>
+</Steps>
+
+### API Endpoint
+
+User creation sends a POST request to `/api/users`:
+
+```javascript
+POST /api/users
+Headers: Authorization: Bearer <admin_token>
+Body: {
+  "username": "newuser",
+  "password": "securepassword",
+  "role": "viewer"
+}
+```
+
+See `/home/daytona/workspace/source/api/main.js:776-801` for implementation details.
+
+## Editing a User
+
+Administrators can update user information including username, password, and role.
+
+<Steps>
+  <Step title="Locate the User">
+    Find the user in the Users table. Each row displays:
+    - Username
+    - Current role (displayed as a badge)
+    - Action buttons (Edit and Delete)
+  </Step>
+  
+  <Step title="Click Edit Button">
+    Click the pencil icon (✏️) in the Actions column to open the edit modal.
+  </Step>
+  
+  <Step title="Modify User Details">
+    Update the desired fields:
+    
+    - **Nombre de Usuario**: Change the username
+    - **Rol de Usuario**: Change the user's role
+    - **Cambiar Contraseña**: Check this box to enable password modification
+      - When checked, a password field appears
+      - Leave unchecked to keep the current password unchanged
+    
+    <Warning>
+      The admin user (id = 1) cannot have their role changed through the interface. This is a security measure to prevent accidental removal of all admin access.
+    </Warning>
+  </Step>
+  
+  <Step title="Save Changes">
+    Click **"Guardar Cambios"** (Save Changes) to apply the updates.
+    
+    The system will update the user record and refresh the user list.
+  </Step>
+</Steps>
+
+### API Endpoint
+
+User updates send a PUT request to `/api/users/:id`:
+
+```javascript
+PUT /api/users/:id
+Headers: Authorization: Bearer <admin_token>
+Body: {
+  "username": "updateduser",
+  "password": "newpassword",  // optional
+  "role": "moderator"
+}
+```
+
+See `/home/daytona/workspace/source/api/main.js:804-834` for implementation details.
+
+## Deleting a User
+
+<Warning>
+  **Permanent Action**
+  
+  User deletion is irreversible. All sessions for the deleted user will be terminated immediately due to the `ON DELETE CASCADE` constraint on the sessions table.
+</Warning>
+
+<Steps>
+  <Step title="Locate the User">
+    Find the user you want to delete in the Users table.
+    
+    <Note>The admin user (id = 1) cannot be deleted. The delete button is hidden for this user.</Note>
+  </Step>
+  
+  <Step title="Click Delete Button">
+    Click the trash icon (🗑️) in the Actions column.
+    
+    A confirmation modal will appear with the warning: "El usuario perdera el acceso" (The user will lose access).
+  </Step>
+  
+  <Step title="Confirm Deletion">
+    Review the username and click **"Sí, eliminar"** (Yes, delete) to permanently remove the user.
+    
+    The user will immediately lose access to the platform.
+  </Step>
+</Steps>
+
+### API Endpoint
+
+User deletion sends a DELETE request to `/api/users/:id`:
+
+```javascript
+DELETE /api/users/:id
+Headers: Authorization: Bearer <admin_token>
+```
+
+<Info>
+  The API prevents self-deletion. An administrator cannot delete their own account through the API (see `/home/daytona/workspace/source/api/main.js:757`).
+</Info>
+
+See `/home/daytona/workspace/source/api/main.js:753-774` for implementation details.
+
+## Database Schema
+
+Users are stored in the `users` table:
+
+```sql
+CREATE TABLE users (
+    id_user INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE,
+    contrasena VARCHAR(255),
+    CHECK (CHAR_LENGTH(contrasena) >= 4),
+    rol VARCHAR(30) DEFAULT "viewer",
+    CHECK (rol IN ("admin", "moderator", "viewer"))
+);
+```
+
+### Key Constraints
+
+- **Username uniqueness**: The `nombre` field must be unique
+- **Password length**: Minimum 4 characters (database level)
+- **Role validation**: Only accepts `admin`, `moderator`, or `viewer`
+- **Default role**: New users default to `viewer` role
+
+### Password Hashing
+
+Passwords are hashed using bcrypt with 10 salt rounds before storage:
+
+```javascript
+const hashedPassword = await bcrypt.hash(password, 10);
+```
+
+The system never stores or transmits plain-text passwords.
+
+## Security Considerations
+
+<CardGroup cols={2}>
+  <Card title="Password Requirements" icon="lock">
+    - Minimum 6 characters (frontend validation)
+    - Minimum 4 characters (database constraint)
+    - Bcrypt hashed with 10 salt rounds
+    - Not returned in user list API responses
+  </Card>
+  
+  <Card title="Session Management" icon="key">
+    - JWT tokens valid for 7 days
+    - Sessions stored in database
+    - Cascade deletion when user is removed
+    - Token required for all user operations
+  </Card>
+  
+  <Card title="Permission Checks" icon="shield-check">
+    - All endpoints verify admin role
+    - Self-deletion prevented
+    - Admin user (id=1) protected from deletion
+    - Role changes validated server-side
+  </Card>
+  
+  <Card title="Audit Trail" icon="list-check">
+    - User creation logged to database
+    - Session history maintained
+    - Media authorship tracked via media_author table
+    - User IDs preserved in content metadata
+  </Card>
+</CardGroup>
+
+## Searching Users
+
+The dashboard includes a search input field to filter users by name:
+
+```html
+<input type="text" placeholder="Buscar por nombre o correo..." 
+       class="users-search-input">
+```
+
+<Note>
+  The search functionality is currently a UI element. Filter implementation may be added in future updates.
+</Note>
+
+## Related Features
+
+- **Media Authorship**: Users can be assigned as authors of media items through the `media_author` relationship table
+- **Session Tracking**: All user login sessions are recorded in the `sessions` table  
+- **Permission System**: Role-based access control enforced at API level (see `/home/daytona/workspace/source/api/main.js:516-551`)
+- **Authentication**: JWT-based authentication with 7-day token expiration
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="User Creation Fails with 'Usuario ya existe'">
+    This error occurs when attempting to create a user with a username that already exists. Usernames must be unique across the system.
+    
+    **Solution**: Choose a different username.
+  </Accordion>
+  
+  <Accordion title="Cannot Delete User">
+    If you cannot delete a user, check:
+    - You are logged in as an admin
+    - You are not trying to delete the admin user (id = 1)
+    - You are not trying to delete yourself
+  </Accordion>
+  
+  <Accordion title="Password Change Not Working">
+    When editing a user, ensure:
+    - The "Cambiar Contraseña" checkbox is checked
+    - The password meets the 6-character minimum
+    - You clicked "Guardar Cambios" to submit
+  </Accordion>
+  
+  <Accordion title="403 Forbidden Error">
+    This error indicates insufficient permissions. User management requires the `admin` role.
+    
+    Check your role with: `GET /api/user/role`
+  </Accordion>
+</AccordionGroup>

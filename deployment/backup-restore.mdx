@@ -1,0 +1,502 @@
+---
+title: Backup & Restore
+description: Automated database backup service and restore procedures for Televisión Écija Media Manager
+---
+
+## Overview
+
+Televisión Écija Media Manager includes an automated backup service that creates daily MySQL database dumps. Backups are stored on the host filesystem and automatically rotated to conserve disk space.
+
+## Automated Backup Service
+
+### Service Configuration
+
+The backup service runs as a separate Docker container:
+
+```yaml
+db_backup:
+  image: alpine:latest
+  container_name: file_manager_backup
+  restart: unless-stopped
+  volumes:
+    - mysql_data:/backup/mysql:ro
+    - ./db/backups:/backups
+  entrypoint: |
+    sh -c "
+    apk add --no-cache mysql-client
+    while true; do
+      mysqldump -h database -u root -proot administradorMultimedia > /backups/backup_\$(date +%Y%m%d_%H%M%S).sql 2>/backups/error.log || echo 'Error en backup' > /backups/backup_error.log
+      ls -tp /backups/*.sql 2>/dev/null | tail -n +8 | xargs -I {} rm -- {} 2>/dev/null
+      sleep 86400
+    done
+    "
+  depends_on:
+    - database
+  networks:
+    - file_manager_network
+```
+
+### How It Works
+
+1. **Container starts** - Alpine Linux with MySQL client tools
+2. **Infinite loop** runs backup process:
+   - Creates timestamped mysqldump
+   - Rotates backups (keeps latest 7)
+   - Sleeps for 24 hours
+   - Repeats
+
+### Backup Schedule
+
+- **Frequency**: Every 24 hours (86400 seconds)
+- **Retention**: 7 most recent backups
+- **Format**: SQL dump files
+- **Naming**: `backup_YYYYMMDD_HHMMSS.sql`
+
+### Backup Location
+
+Backups are stored in `./db/backups/` on the host filesystem:
+
+```bash
+db/backups/
+├── backup_20260309_120000.sql
+├── backup_20260308_120000.sql
+├── backup_20260307_120000.sql
+├── backup_20260306_120000.sql
+├── backup_20260305_120000.sql
+├── backup_20260304_120000.sql
+├── backup_20260303_120000.sql
+└── error.log
+```
+
+**Volume mounts:**
+- `./db/backups:/backups` - Host directory for backup files
+- `mysql_data:/backup/mysql:ro` - Read-only access to MySQL data (for reference)
+
+### Automatic Rotation
+
+The rotation command keeps only the 7 newest backups:
+
+```bash
+ls -tp /backups/*.sql 2>/dev/null | tail -n +8 | xargs -I {} rm -- {} 2>/dev/null
+```
+
+**How it works:**
+- `ls -tp` - List files by modification time, newest first
+- `tail -n +8` - Skip first 7 files, show 8th onwards
+- `xargs -I {} rm -- {}` - Delete old backup files
+
+<Warning>
+**Retention Policy**: By default, only the 7 most recent backups are kept. Older backups are automatically deleted.
+
+To change retention, modify the `tail -n +8` value:
+- Keep 14 backups: `tail -n +15`
+- Keep 30 backups: `tail -n +31`
+</Warning>
+
+## Manual Backup
+
+### Create Immediate Backup
+
+```bash
+# Using Docker exec
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Or trigger the backup service to run now
+docker exec file_manager_backup sh -c "mysqldump -h database -u root -proot administradorMultimedia > /backups/manual_backup_$(date +%Y%m%d_%H%M%S).sql"
+```
+
+### Backup Specific Tables
+
+```bash
+# Backup only users table
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia users > users_backup.sql
+
+# Backup only media_items table
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia media_items > media_items_backup.sql
+```
+
+### Backup with Compression
+
+```bash
+# Create compressed backup (saves disk space)
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia | gzip > backup_$(date +%Y%m%d).sql.gz
+```
+
+## Restore Database
+
+### Full Database Restore
+
+Restore from a backup file:
+
+```bash
+# Method 1: Using docker exec
+docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < db/backups/backup_20260309_120000.sql
+
+# Method 2: Copy file into container first
+docker cp backup_20260309_120000.sql file_manager_mysql:/tmp/restore.sql
+docker exec file_manager_mysql mysql -uroot -proot administradorMultimedia < /tmp/restore.sql
+```
+
+<Warning>
+**Restore will overwrite existing data**. Make sure to create a current backup before restoring:
+
+```bash
+# Backup current state
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia > pre_restore_backup.sql
+
+# Then restore
+docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < old_backup.sql
+```
+</Warning>
+
+### Restore from Compressed Backup
+
+```bash
+# Decompress and restore in one command
+gunzip -c backup_20260309.sql.gz | docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia
+```
+
+### Restore Specific Tables
+
+```bash
+# Extract specific table from backup
+sed -n '/CREATE TABLE users/,/CREATE TABLE [^u]/p' backup.sql > users_only.sql
+
+# Restore only that table
+docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < users_only.sql
+```
+
+### Complete Restore Procedure
+
+For a complete system restore:
+
+```bash
+# 1. Stop all services except database
+docker-compose stop api frontend db_backup
+
+# 2. Create safety backup
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia > pre_restore_$(date +%Y%m%d_%H%M%S).sql
+
+# 3. Drop and recreate database
+docker exec -i file_manager_mysql mysql -uroot -proot << EOF
+DROP DATABASE IF EXISTS administradorMultimedia;
+CREATE DATABASE administradorMultimedia;
+EOF
+
+# 4. Restore from backup
+docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < db/backups/backup_20260309_120000.sql
+
+# 5. Verify restore
+docker exec file_manager_mysql mysql -uroot -proot administradorMultimedia -e "SHOW TABLES;"
+
+# 6. Restart all services
+docker-compose up -d
+```
+
+## Backup Volume Data
+
+In addition to database backups, you should also backup Docker volumes:
+
+### Backup Uploaded Media Files
+
+```bash
+# Create tarball of uploads volume
+docker run --rm \
+  -v file_manager_uploads_data:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/uploads_backup_$(date +%Y%m%d).tar.gz -C /data .
+```
+
+### Backup API Logs
+
+```bash
+# Create tarball of logs volume
+docker run --rm \
+  -v file_manager_api_logs:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/logs_backup_$(date +%Y%m%d).tar.gz -C /data .
+```
+
+### Backup MySQL Data Volume
+
+```bash
+# Create tarball of MySQL data volume
+docker run --rm \
+  -v file_manager_mysql_data:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/mysql_data_backup_$(date +%Y%m%d).tar.gz -C /data .
+```
+
+### Restore Volume Data
+
+```bash
+# Stop services first
+docker-compose down
+
+# Restore uploads volume
+docker run --rm \
+  -v file_manager_uploads_data:/data \
+  -v $(pwd):/backup \
+  alpine sh -c "cd /data && tar xzf /backup/uploads_backup_20260309.tar.gz"
+
+# Restart services
+docker-compose up -d
+```
+
+## Monitoring Backups
+
+### Check Backup Service Status
+
+```bash
+# View backup service logs
+docker-compose logs db_backup
+
+# Follow backup logs in real-time
+docker-compose logs -f db_backup
+
+# Check if service is running
+docker-compose ps db_backup
+```
+
+### View Recent Backups
+
+```bash
+# List backups with sizes and dates
+ls -lh db/backups/*.sql
+
+# Show only backup files (exclude error logs)
+find db/backups -name "backup_*.sql" -type f -exec ls -lh {} \;
+
+# Count backups
+ls -1 db/backups/backup_*.sql | wc -l
+```
+
+### Check Backup Integrity
+
+```bash
+# Verify SQL file syntax
+mysql -uroot -proot --comments < db/backups/backup_20260309_120000.sql --verbose
+
+# Check for errors in backup
+grep -i error db/backups/backup_20260309_120000.sql
+
+# View backup size
+du -h db/backups/backup_20260309_120000.sql
+```
+
+### Check Error Logs
+
+```bash
+# View backup error log
+cat db/backups/error.log
+
+# Check for error indicators
+cat db/backups/backup_error.log
+```
+
+## Backup Best Practices
+
+### Production Recommendations
+
+<Warning>
+**Production Backup Strategy:**
+
+1. **Off-site backups**: Copy backups to separate server/cloud storage
+   ```bash
+   # Example: rsync to remote server
+   rsync -avz db/backups/ user@backup-server:/backups/media-manager/
+   ```
+
+2. **Increase retention**: Keep more than 7 backups for production
+   - Modify rotation: `tail -n +31` (keeps 30 backups)
+
+3. **Test restores regularly**: Verify backups are valid
+   ```bash
+   # Test restore in separate container
+   docker run -d --name test-mysql -e MYSQL_ROOT_PASSWORD=root mysql:8.0
+   docker exec -i test-mysql mysql -uroot -proot -e "CREATE DATABASE test;"
+   docker exec -i test-mysql mysql -uroot -proot test < backup.sql
+   ```
+
+4. **Monitor backup size**: Alert on unusual size changes
+   ```bash
+   # Check if backup size is reasonable
+   BACKUP_SIZE=$(stat -f%z db/backups/backup_latest.sql)
+   if [ $BACKUP_SIZE -lt 1000 ]; then
+     echo "WARNING: Backup unusually small"
+   fi
+   ```
+
+5. **Encrypt sensitive backups**: Use GPG or similar
+   ```bash
+   # Encrypt backup
+   gpg --encrypt --recipient admin@example.com backup.sql
+   ```
+</Warning>
+
+### Automated Off-Site Backup
+
+Create a script for automated off-site backups:
+
+```bash
+#!/bin/bash
+# backup-to-s3.sh
+
+BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).sql"
+DOCKER_BACKUP_DIR="db/backups"
+
+# Create backup
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia > "$DOCKER_BACKUP_DIR/$BACKUP_FILE"
+
+# Compress
+gzip "$DOCKER_BACKUP_DIR/$BACKUP_FILE"
+
+# Upload to S3 (requires aws-cli)
+aws s3 cp "$DOCKER_BACKUP_DIR/${BACKUP_FILE}.gz" s3://my-backup-bucket/media-manager/
+
+# Clean up local compressed copy
+rm "$DOCKER_BACKUP_DIR/${BACKUP_FILE}.gz"
+
+echo "Backup uploaded to S3: ${BACKUP_FILE}.gz"
+```
+
+**Schedule with cron:**
+```bash
+# Run daily at 2 AM
+0 2 * * * /path/to/backup-to-s3.sh >> /var/log/backup.log 2>&1
+```
+
+## Disaster Recovery
+
+### Complete System Restore
+
+Steps to restore entire system from backups:
+
+1. **Install Docker and Docker Compose** on new server
+
+2. **Clone or copy application files**
+   ```bash
+   git clone <repository-url>
+   cd media-manager
+   ```
+
+3. **Restore database backup**
+   ```bash
+   # Start only database service
+   docker-compose up -d database
+   
+   # Wait for MySQL to be ready
+   sleep 30
+   
+   # Restore database
+   docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < db/backups/backup_latest.sql
+   ```
+
+4. **Restore volume data**
+   ```bash
+   # Restore uploads
+   docker run --rm \
+     -v file_manager_uploads_data:/data \
+     -v $(pwd):/backup \
+     alpine sh -c "cd /data && tar xzf /backup/uploads_backup_latest.tar.gz"
+   ```
+
+5. **Start all services**
+   ```bash
+   docker-compose up -d
+   ```
+
+6. **Verify restoration**
+   - Check database: `docker exec file_manager_mysql mysql -uroot -proot administradorMultimedia -e "SELECT COUNT(*) FROM media_items;"`
+   - Access frontend: `http://server-ip`
+   - Test login and file access
+
+## Backup Storage Requirements
+
+### Estimate Backup Size
+
+Typical backup sizes:
+
+- **Empty database**: ~5 KB
+- **100 media items**: ~50 KB
+- **1,000 media items**: ~500 KB
+- **10,000 media items**: ~5 MB
+
+**Note**: Backup size depends on:
+- Number of media items
+- Description lengths
+- Number of users and sessions
+- Tag complexity
+
+### Calculate Storage Needs
+
+```bash
+# Current database size
+docker exec file_manager_mysql mysql -uroot -proot -e "
+  SELECT 
+    ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)'
+  FROM information_schema.tables 
+  WHERE table_schema = 'administradorMultimedia';
+"
+
+# 7 backups with ~5 MB each = ~35 MB disk space needed
+# 30 backups with ~5 MB each = ~150 MB disk space needed
+```
+
+## Troubleshooting
+
+### Backup service not creating files
+
+**Check:**
+```bash
+# View service logs
+docker-compose logs db_backup
+
+# Check error log
+cat db/backups/error.log
+
+# Verify directory permissions
+ls -ld db/backups/
+```
+
+**Common issues:**
+- Directory not writable
+- Wrong database credentials
+- Network connectivity to database
+
+### Restore fails with "table already exists"
+
+**Solution:**
+```bash
+# Drop database first
+docker exec file_manager_mysql mysql -uroot -proot -e "DROP DATABASE administradorMultimedia;"
+docker exec file_manager_mysql mysql -uroot -proot -e "CREATE DATABASE administradorMultimedia;"
+
+# Then restore
+docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < backup.sql
+```
+
+### Backup file is empty or very small
+
+**Check:**
+```bash
+# View file size
+ls -lh db/backups/backup_*.sql
+
+# Check for errors
+cat db/backups/error.log
+
+# Manually test mysqldump
+docker exec file_manager_backup mysqldump -h database -u root -proot administradorMultimedia
+```
+
+**Possible causes:**
+- Database connection failed
+- Wrong credentials
+- Database not ready when backup ran
+
+## Next Steps
+
+- Review [Database Setup](/deployment/database-setup) for schema details
+- Configure [Environment Variables](/deployment/environment-variables)
+- Set up [Docker Compose](/deployment/docker) deployment

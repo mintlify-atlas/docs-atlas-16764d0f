@@ -1,0 +1,334 @@
+---
+title: Docker Compose Setup
+description: Complete Docker Compose configuration for deploying Televisión Écija Media Manager
+---
+
+## Overview
+
+Televisión Écija Media Manager uses Docker Compose to orchestrate multiple services including the MySQL database, Node.js API, Angular frontend, and an automated backup service.
+
+## Services Architecture
+
+The application consists of four main services:
+
+- **database**: MySQL 8.0 container for data storage
+- **api**: Node.js/Express backend API
+- **frontend**: Angular application served by Nginx
+- **db_backup**: Automated database backup service
+
+All services communicate through a dedicated bridge network called `file_manager_network`.
+
+## Docker Compose Configuration
+
+### Complete docker-compose.yml
+
+```yaml
+services:
+  database:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    container_name: file_manager_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: administradorMultimedia
+      MYSQL_USER: user
+      MYSQL_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/backups:/backups
+    networks:
+      - file_manager_network
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: file_manager_api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: database
+      USER: root
+      PASSWORD: root
+      DATABASE: administradorMultimedia
+      SECRET_KEY: claveSecretaNoMandarANadie
+      MEDIA_PATH: /usr/src/app/uploads
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads_data:/usr/src/app/uploads
+      - api_logs:/usr/src/app/logs
+    depends_on:
+      - database
+    networks:
+      - file_manager_network
+
+  frontend:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: file_manager_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - file_manager_network
+
+  db_backup:
+    image: alpine:latest
+    container_name: file_manager_backup
+    restart: unless-stopped
+    volumes:
+      - mysql_data:/backup/mysql:ro
+      - ./db/backups:/backups
+    entrypoint: |
+      sh -c "
+      apk add --no-cache mysql-client
+      while true; do
+        mysqldump -h database -u root -proot administradorMultimedia > /backups/backup_\$(date +%Y%m%d_%H%M%S).sql 2>/backups/error.log || echo 'Error en backup' > /backups/backup_error.log
+        ls -tp /backups/*.sql 2>/dev/null | tail -n +8 | xargs -I {} rm -- {} 2>/dev/null
+        sleep 86400
+      done
+      "
+    depends_on:
+      - database
+    networks:
+      - file_manager_network
+
+volumes:
+  mysql_data:
+    name: file_manager_mysql_data
+  uploads_data:
+    name: file_manager_uploads_data
+  api_logs:
+    name: file_manager_api_logs
+
+networks:
+  file_manager_network:
+    name: file_manager_network
+    driver: bridge
+```
+
+## Service Details
+
+### Database Service
+
+Builds from a custom MySQL 8.0 image with:
+
+- Custom MySQL configuration (`my.cnf`)
+- Initialization script (`init.sql`)
+- CSV data import (`bd.csv`)
+- Persistent data storage via named volume
+- Backup directory mount for automated backups
+
+**Dockerfile** (`db/Dockerfile`):
+
+```dockerfile
+FROM mysql:8.0
+
+COPY ./my.cnf /etc/mysql/conf.d/my.cnf
+COPY init.sql /docker-entrypoint-initdb.d/
+COPY bd.csv /bd.csv
+
+EXPOSE 3306
+```
+
+### API Service
+
+Node.js 24.13.1 Alpine-based container with:
+
+- Multi-stage build for optimized image size
+- PM2 process manager for production
+- Non-root user for security
+- Separate volumes for uploads and logs
+- Connection pooling (10 connections)
+
+**Dockerfile** (`api/Dockerfile`):
+
+```dockerfile
+# Stage 1: Build
+FROM node:24.13.1-alpine3.22 AS build
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Stage 2: Production
+FROM node:24.13.1-alpine3.22
+
+WORKDIR /usr/src/app
+
+RUN npm install -g pm2
+
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+RUN mkdir -p /usr/src/app/uploads && \
+    mkdir -p /usr/src/app/logs && \
+    chown -R nodejs:nodejs /usr/src/app
+
+COPY --from=build --chown=nodejs:nodejs /usr/src/app/node_modules ./node_modules
+COPY --chown=nodejs:nodejs . .
+
+USER nodejs
+
+EXPOSE 3000
+
+CMD ["pm2-runtime", "start", "ecosystem.config.js"]
+```
+
+### Frontend Service
+
+Angular application built and served by Nginx:
+
+- Multi-stage build (Node.js for building, Nginx for serving)
+- Configurable API URL via build argument
+- Custom Nginx configuration
+- Production-optimized Angular build
+
+**Dockerfile** (`front/Dockerfile`):
+
+```dockerfile
+# Stage 1: Build the Angular application
+FROM node:alpine AS build
+WORKDIR /app
+
+ARG API_URL=https://apiecijacomarca.rud1.es/api
+ENV API_URL=$API_URL
+
+RUN echo "API_URL is set to: ${API_URL}"
+RUN mkdir -p src/environments
+RUN echo "export const environment = { production: true, API_URL: '${API_URL}' };" > src/environments/environment.ts
+
+COPY package.json package-lock.json ./
+RUN npm install
+COPY . .
+RUN npm run build -- --configuration production
+
+# Stage 2: Serve with Nginx
+FROM nginx:alpine
+COPY --from=build /app/dist/front/browser /usr/share/nginx/html
+RUN chmod -R 755 /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+### Backup Service
+
+Automated daily backup service using Alpine Linux. See [Backup & Restore](/deployment/backup-restore) for details.
+
+## Volume Configuration
+
+### Persistent Volumes
+
+| Volume Name | Purpose | Mount Point |
+|------------|---------|-------------|
+| `file_manager_mysql_data` | MySQL database files | `/var/lib/mysql` |
+| `file_manager_uploads_data` | User-uploaded media files | `/usr/src/app/uploads` |
+| `file_manager_api_logs` | API application logs | `/usr/src/app/logs` |
+
+### Bind Mounts
+
+- `./db/backups:/backups` - Database backup files (shared between database and backup service)
+
+<Warning>
+Volumes persist data even when containers are removed. To completely remove all data, you must explicitly delete the volumes:
+
+```bash
+docker-compose down -v
+```
+</Warning>
+
+## Network Configuration
+
+All services communicate through a custom bridge network:
+
+```yaml
+networks:
+  file_manager_network:
+    name: file_manager_network
+    driver: bridge
+```
+
+**Service Communication:**
+
+- API connects to database using hostname `database`
+- Backup service connects to database using hostname `database`
+- Frontend connects to API via configured API_URL (external)
+
+## Deployment Commands
+
+### Start All Services
+
+```bash
+docker-compose up -d
+```
+
+### View Logs
+
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f api
+```
+
+### Stop Services
+
+```bash
+docker-compose down
+```
+
+### Rebuild After Changes
+
+```bash
+docker-compose up -d --build
+```
+
+### View Running Containers
+
+```bash
+docker-compose ps
+```
+
+## Port Mapping
+
+| Service | Internal Port | External Port | Purpose |
+|---------|--------------|---------------|----------|
+| database | 3306 | 3306 | MySQL database access |
+| api | 3000 | 3000 | REST API endpoints |
+| frontend | 80 | 80 | Web application |
+
+## Build Arguments
+
+### Frontend API URL
+
+Configure the API endpoint during frontend build:
+
+```bash
+docker-compose build --build-arg API_URL=https://your-api-url.com/api frontend
+```
+
+## Restart Policies
+
+All services use `restart: unless-stopped` policy:
+
+- Containers restart automatically on failure
+- Containers restart after Docker daemon restarts
+- Containers do NOT restart if manually stopped
+
+## Next Steps
+
+- Configure [Environment Variables](/deployment/environment-variables)
+- Review [Database Setup](/deployment/database-setup)
+- Set up [Backup & Restore](/deployment/backup-restore)

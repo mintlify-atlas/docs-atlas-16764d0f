@@ -1,97 +1,91 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Welcome to Televisión Écija Media Manager"
+description: "A self-hosted media management platform for organizing, searching, and managing multimedia content across distributed storage locations"
 ---
 
-## Setting up
+<Note>
+Televisión Écija Media Manager is a comprehensive solution built specifically for managing distributed multimedia content with role-based access control, advanced search, and automated workflows.
+</Note>
 
-Get your documentation site up and running in minutes.
+## Why Televisión Écija Media Manager?
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
+Managing multimedia content across distributed storage locations can be challenging. Televisión Écija Media Manager provides a centralized platform to organize, search, and manage videos, images, and other media files efficiently.
+
+<CardGroup cols={2}>
+  <Card title="Role-Based Access" icon="shield-halved" href="/user-guide/roles-permissions">
+    Control who can view, upload, and manage content with admin, moderator, and viewer roles
+  </Card>
+  <Card title="Distributed Storage" icon="hard-drive" href="/admin/location-management">
+    Manage content across multiple storage locations and physical disks
+  </Card>
+  <Card title="Advanced Search" icon="magnifying-glass" href="/user-guide/searching-filtering">
+    Find media quickly with powerful search and filtering capabilities
+  </Card>
+  <Card title="Video Thumbnails" icon="video" href="/user-guide/managing-media">
+    Automatic thumbnail generation for video files using FFmpeg
+  </Card>
+</CardGroup>
+
+## Get Started
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Deploy with Docker in minutes
+  </Card>
+  <Card title="Configuration" icon="gear" href="/getting-started/configuration">
+    Set up your environment
+  </Card>
+  <Card title="First Steps" icon="flag" href="/getting-started/first-steps">
+    Upload your first media file
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Multi-User Authentication with JWT" icon="key">
+    Secure authentication system with JSON Web Tokens, session management, and automatic token refresh for seamless user experience.
+  </Accordion>
+  <Accordion title="Media Type Classification" icon="tags">
+    Organize content by custom media types and tags for easy categorization and discovery.
+  </Accordion>
+  <Accordion title="Automated Database Backups" icon="database">
+    Built-in daily backup system ensures your media catalog is always protected.
+  </Accordion>
+  <Accordion title="RESTful API" icon="code">
+    Complete REST API for integration with external systems and custom workflows.
+  </Accordion>
+</AccordionGroup>
+
+## Architecture Overview
+
+Televisión Écija Media Manager is built with a modern stack designed for reliability and performance:
+
+- **Frontend**: Angular 21 with TypeScript for a responsive, type-safe user interface
+- **Backend**: Express.js (Node.js) REST API with JWT authentication
+- **Database**: MySQL with automated backup system
+- **Storage**: Distributed file storage with flexible location management
+- **Deployment**: Docker Compose for easy container orchestration
+
+<Card title="Learn More About the Architecture" icon="sitemap" href="/architecture">
+  Dive deep into the technical architecture and design decisions
 </Card>
 
-## Make it yours
+## API Reference
 
-Design a docs site that looks great and empowers your users.
+Explore the complete API documentation for integrating with the platform:
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/auth/login">
+    Login, register, and session management endpoints
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Media Management" icon="photo-film" href="/api/media/upload">
+    Upload, retrieve, update, and delete media files
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="User Administration" icon="users" href="/api/admin/users">
+    Manage users and permissions programmatically
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Statistics" icon="chart-line" href="/api/admin/stats">
+    Access platform analytics and usage metrics
   </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+</CardGroup>

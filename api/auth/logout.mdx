@@ -1,0 +1,117 @@
+---
+title: 'Logout'
+api: 'POST /api/logout'
+description: 'Invalidate the current user session'
+---
+
+Logs out the current user by deleting their session from the database. Requires a valid JWT token in the Authorization header.
+
+## Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token in the format: `Bearer <token>`
+</ParamField>
+
+<Warning>
+  This endpoint requires authentication. Include your JWT token in the Authorization header.
+</Warning>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates successful logout (always true in successful responses)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message: "Sesión cerrada correctamente"
+</ResponseField>
+
+## Example Request
+
+```bash cURL
+curl -X POST http://localhost:3000/api/logout \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Example Response
+
+```json
+{
+  "success": true,
+  "message": "Sesión cerrada correctamente"
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### 401 Unauthorized
+
+Returned when no token is provided:
+
+```json
+{
+  "error": "Token requerido"
+}
+```
+
+### 403 Forbidden
+
+Returned when the token is invalid or expired:
+
+```json
+{
+  "error": "Token inválido"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when a database or server error occurs:
+
+```json
+{
+  "error": "Database connection failed"
+}
+```
+
+## Implementation Details
+
+### Token Verification
+
+The endpoint uses the `verifyToken` middleware to validate the JWT:
+
+```javascript
+function verifyToken(req, res, next) {
+  const token = req.headers.authorization?.split(" ")[1];
+  
+  if (!token) return res.status(401).json({ error: "Token requerido" });
+  
+  jwt.verify(token, secret, (err, decoded) => {
+    if (err) return res.status(403).json({ error: "Token inválido" });
+    
+    req.user = decoded;
+    next();
+  });
+}
+```
+
+### Session Deletion
+
+The session is deleted from the database using both the token and user ID for security:
+
+```javascript
+DELETE FROM sessions WHERE key_session = ? AND id_user = ?
+```
+
+<Note>
+  After logging out, the JWT token is invalidated in the database. However, the token itself remains valid until its expiration time (7 days). The server checks the sessions table for all authenticated requests.
+</Note>
+
+<Warning>
+  Always call this endpoint before discarding the token on the client side to ensure proper session cleanup.
+</Warning>

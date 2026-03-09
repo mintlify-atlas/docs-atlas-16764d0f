@@ -1,0 +1,470 @@
+---
+title: Platform Statistics
+description: View analytics, storage metrics, and content distribution data
+---
+
+The Televisión Écija Media Manager provides comprehensive statistics about your media catalog, storage utilization, and content distribution. All authenticated users can access platform statistics.
+
+## Statistics Endpoint
+
+Retrieve platform-wide analytics:
+
+```javascript
+GET /api/stats
+Headers: Authorization: Bearer <token>
+```
+
+**Full Response Structure**:
+```json
+{
+  "success": true,
+  "stats": {
+    "total": 150,
+    "byType": [
+      { "name": "Documental", "total": 45 },
+      { "name": "Telediario", "total": 32 },
+      { "name": "Entrevista", "total": 28 }
+    ],
+    "byYear": [
+      { "publication_year": 2024, "total": 67 },
+      { "publication_year": 2023, "total": 53 },
+      { "publication_year": 2022, "total": 30 }
+    ],
+    "storage": {
+      "bytes": 523847293847,
+      "formatted": "487.82 GB",
+      "total": 1099511627776,
+      "free": 575664333929,
+      "usedPercentage": 47.64
+    }
+  }
+}
+```
+
+See `/home/daytona/workspace/source/api/main.js:590-682` for implementation details.
+
+## Total Media Count
+
+The most basic metric: total number of media items in the catalog.
+
+```sql
+SELECT COUNT(*) as total FROM media_items
+```
+
+**Response field**: `stats.total`
+
+<Card title="Total Items" icon="database">
+  Represents all media items currently stored in the system, regardless of type, year, or location.
+</Card>
+
+## Content by Media Type
+
+Breakdown of media items by their content type category.
+
+### Query
+
+```sql
+SELECT ct.name, COUNT(*) as total
+FROM media_items m
+JOIN media_types ct ON m.media_type_id = ct.id
+GROUP BY ct.name
+```
+
+See `/home/daytona/workspace/source/api/main.js:596-601`.
+
+### Response Structure
+
+**Response field**: `stats.byType`
+
+```json
+[
+  { "name": "Documental", "total": 45 },
+  { "name": "Telediario", "total": 32 },
+  { "name": "Entrevista", "total": 28 },
+  { "name": "Videoclip", "total": 25 },
+  { "name": "Cortometraje", "total": 20 }
+]
+```
+
+<Info>
+  Media items with `media_type_id = NULL` are excluded from this breakdown. These represent items without an assigned type.
+</Info>
+
+### Visualization Suggestions
+
+<CardGroup cols={2}>
+  <Card title="Pie Chart" icon="chart-pie">
+    Show proportional distribution of content types in your catalog
+  </Card>
+  
+  <Card title="Bar Chart" icon="chart-bar">
+    Compare quantities across different media type categories
+  </Card>
+</CardGroup>
+
+## Content by Publication Year
+
+Historical distribution of media items based on their publication year.
+
+### Query
+
+```sql
+SELECT publication_year, COUNT(*) as total
+FROM media_items
+WHERE publication_year IS NOT NULL
+GROUP BY publication_year
+ORDER BY publication_year DESC
+```
+
+See `/home/daytona/workspace/source/api/main.js:604-610`.
+
+### Response Structure
+
+**Response field**: `stats.byYear`
+
+```json
+[
+  { "publication_year": 2024, "total": 67 },
+  { "publication_year": 2023, "total": 53 },
+  { "publication_year": 2022, "total": 30 },
+  { "publication_year": 2021, "total": 15 },
+  { "publication_year": 2020, "total": 8 }
+]
+```
+
+Results are sorted from most recent to oldest year.
+
+<Note>
+  Media items with `publication_year = NULL` are excluded from this breakdown. Consider these when interpreting catalog completeness.
+</Note>
+
+### Use Cases
+
+- **Archive Planning**: Identify which years have the most content requiring preservation
+- **Content Gaps**: Discover years with sparse coverage
+- **Historical Trends**: Analyze content production volume over time
+- **Reporting**: Generate annual content reports for stakeholders
+
+## Storage Statistics
+
+Comprehensive disk usage metrics including file sizes, available space, and utilization percentages.
+
+### Storage Calculation Process
+
+<Steps>
+  <Step title="Calculate Total File Size">
+    The system scans all media items and sums their file sizes:
+    
+    ```javascript
+    const [files] = await connection.promise().query(
+        "SELECT media_path FROM media_items"
+    );
+
+    let totalBytes = 0;
+    for (const file of files) {
+        if (fs.existsSync(file.media_path)) {
+            const stats = fs.statSync(file.media_path);
+            totalBytes += stats.size;
+        }
+    }
+    ```
+    
+    See `/home/daytona/workspace/source/api/main.js:623-632`.
+  </Step>
+  
+  <Step title="Query Disk Statistics (Linux/macOS)">
+    On Unix-based systems, the `df` command retrieves partition information:
+    
+    ```javascript
+    const dfOutput = execSync(`df -k "${mediaPath}"`).toString();
+    const lines = dfOutput.trim().split('\n');
+    const stats = lines[1].split(/\s+/);
+    const blockSize = 1024;
+
+    diskStats = {
+        total: parseInt(stats[1]) * blockSize,    // Total partition size
+        used: parseInt(stats[2]) * blockSize,     // Used space
+        free: parseInt(stats[3]) * blockSize,     // Available space
+        usedPercentage: (parseInt(stats[2]) / parseInt(stats[1])) * 100
+    };
+    ```
+    
+    See `/home/daytona/workspace/source/api/main.js:636-652`.
+  </Step>
+  
+  <Step title="Format Human-Readable Sizes">
+    The `formatBytes()` helper converts bytes to KB, MB, GB, etc.:
+    
+    ```javascript
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+    }
+    ```
+    
+    See `/home/daytona/workspace/source/api/main.js:1014-1024`.
+  </Step>
+</Steps>
+
+### Response Structure
+
+**Response field**: `stats.storage`
+
+```json
+{
+  "bytes": 523847293847,           // Raw bytes of media files
+  "formatted": "487.82 GB",        // Human-readable media size
+  "total": 1099511627776,          // Total partition capacity (1TB)
+  "free": 575664333929,            // Free space remaining
+  "usedPercentage": 47.64          // Percentage of partition used
+}
+```
+
+### Storage Metrics Explained
+
+<AccordionGroup>
+  <Accordion title="bytes" icon="file">
+    **Total size of all media files** tracked in the `media_items` table.
+    
+    - Calculated by summing `fs.statSync(media_path).size` for all items
+    - Excludes thumbnails, database size, and other system files
+    - Only counts files that exist on disk
+  </Accordion>
+  
+  <Accordion title="formatted" icon="text">
+    **Human-readable representation** of the `bytes` value.
+    
+    Examples:
+    - `"487.82 GB"`
+    - `"3.45 TB"`
+    - `"128.30 MB"`
+    
+    Uses 2 decimal places by default.
+  </Accordion>
+  
+  <Accordion title="total" icon="hard-drive">
+    **Total capacity of the storage partition** where `MEDIA_PATH` is located.
+    
+    - Retrieved from `df` command (Linux/macOS)
+    - Represents entire partition size, not just media directory
+    - Value in bytes
+  </Accordion>
+  
+  <Accordion title="free" icon="circle-check">
+    **Available space** remaining on the storage partition.
+    
+    - Retrieved from `df` command
+    - Shared with other applications on the same partition
+    - Use to determine if there's room for new uploads
+  </Accordion>
+  
+  <Accordion title="usedPercentage" icon="percent">
+    **Percentage of partition capacity currently in use** (all files, not just media).
+    
+    Calculation: `(used / total) * 100`
+    
+    <Warning>
+      Values above 90% indicate the partition is nearly full. Consider:
+      - Adding more storage capacity
+      - Archiving old content
+      - Creating a new storage location on a different partition
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Platform Compatibility
+
+### Linux and macOS
+
+✅ Full storage statistics available
+
+The `df` command is used to query partition information:
+
+```bash
+df -k "/path/to/media"
+```
+
+### Windows
+
+⚠️ Limited storage statistics
+
+The current implementation checks `process.platform === 'linux' || process.platform === 'darwin'` before running disk queries. On Windows:
+
+- `bytes` and `formatted` will still be calculated (file sizes)
+- `total`, `free`, and `usedPercentage` will be `0` or unavailable
+
+<Info>
+  **Windows Enhancement**: To support Windows, the `df` command could be replaced with PowerShell's `Get-PSDrive` or the `diskusage` npm package.
+</Info>
+
+## Error Handling
+
+The statistics endpoint includes robust error handling:
+
+```javascript
+try {
+    // Calculate storage
+} catch (diskError) {
+    console.error('Error obteniendo estadísticas del disco:', diskError);
+    // Continue with default values
+}
+```
+
+If disk statistics fail:
+- The request still succeeds
+- Storage fields default to `0`
+- Error is logged server-side
+- Other statistics (counts, types, years) are unaffected
+
+See `/home/daytona/workspace/source/api/main.js:655-657`.
+
+## Frontend Dashboard Integration
+
+Example of fetching and displaying statistics:
+
+```javascript
+fetch('/api/stats', {
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+})
+.then(res => res.json())
+.then(data => {
+  if (data.success) {
+    const { total, byType, byYear, storage } = data.stats;
+    
+    // Display total count
+    document.getElementById('total-items').textContent = total;
+    
+    // Render type distribution chart
+    renderPieChart('type-chart', byType);
+    
+    // Render year timeline
+    renderBarChart('year-chart', byYear);
+    
+    // Display storage info
+    document.getElementById('storage-used').textContent = storage.formatted;
+    document.getElementById('storage-percentage').textContent = 
+      `${storage.usedPercentage.toFixed(1)}%`;
+    
+    // Storage warning
+    if (storage.usedPercentage > 90) {
+      showStorageWarning();
+    }
+  }
+})
+.catch(err => console.error('Failed to load statistics:', err));
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Content Planning" icon="calendar">
+    Identify gaps in your content catalog by analyzing year and type distributions to inform future production priorities.
+  </Card>
+  
+  <Card title="Storage Management" icon="hard-drive">
+    Monitor disk usage to plan capacity upgrades and implement archival strategies before running out of space.
+  </Card>
+  
+  <Card title="Reporting" icon="file-chart-column">
+    Generate executive summaries showing catalog growth, content diversity, and infrastructure utilization.
+  </Card>
+  
+  <Card title="User Insights" icon="users">
+    Display statistics on public-facing pages to showcase the size and scope of your media archive.
+  </Card>
+</CardGroup>
+
+## Performance Considerations
+
+### File System Scanning
+
+The storage calculation requires:
+- Database query to fetch all `media_path` values
+- `fs.existsSync()` check for each file
+- `fs.statSync()` to read file size
+
+<Warning>
+  **Large Catalogs**: For archives with thousands of files, this operation may take several seconds. Consider:
+  
+  - Caching statistics (refresh every 5-15 minutes)
+  - Computing statistics asynchronously in the background
+  - Storing file sizes in the database during upload to avoid disk scans
+</Warning>
+
+### Database Queries
+
+The endpoint executes three separate queries:
+1. Total count
+2. Group by media type
+3. Group by publication year
+
+These are relatively fast, but adding database indexes can improve performance:
+
+```sql
+CREATE INDEX idx_media_type ON media_items(media_type_id);
+CREATE INDEX idx_pub_year ON media_items(publication_year);
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Storage Shows 0 Bytes">
+    Possible causes:
+    - No media items in database
+    - Files have been deleted but database records remain
+    - Permission issues preventing `fs.statSync()`
+    
+    **Solution**: 
+    1. Verify media items exist: `SELECT COUNT(*) FROM media_items`
+    2. Check file permissions
+    3. Verify `media_path` values are correct
+  </Accordion>
+  
+  <Accordion title="Disk Statistics Unavailable on Windows">
+    The current implementation only supports Linux and macOS for disk queries.
+    
+    **Solution**: Implement Windows support using PowerShell or a cross-platform library like `diskusage`.
+  </Accordion>
+  
+  <Accordion title="Statistics Load Slowly">
+    Large media catalogs can take time to scan.
+    
+    **Solution**:
+    - Implement caching (Redis or in-memory)
+    - Store file sizes in database during upload
+    - Use pagination for year/type breakdowns
+  </Accordion>
+  
+  <Accordion title="403 Forbidden Error">
+    All authenticated users can access statistics, but the token may be invalid or expired.
+    
+    **Solution**: Verify token with `GET /api/user/role`
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+- **Media Types**: Statistics show distribution by type (see [Media Type Categories](/admin/media-types))
+- **Storage Locations**: Disk stats reflect total usage across all locations (see [Location Management](/admin/location-management))
+- **File Upload**: New uploads immediately affect storage and total counts
+- **Dashboard**: Statistics typically displayed on admin dashboard pages
+
+## Future Enhancements
+
+Potential improvements to the statistics system:
+
+- [ ] Statistics by author/uploader
+- [ ] View counts and download tracking
+- [ ] Storage breakdown by media type
+- [ ] Storage breakdown by location
+- [ ] Historical trending (compare month-over-month)
+- [ ] Export statistics as CSV or PDF reports
+- [ ] Real-time dashboard with WebSocket updates
+- [ ] Scheduled statistics email reports

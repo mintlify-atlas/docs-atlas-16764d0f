@@ -1,0 +1,533 @@
+---
+title: Database Setup
+description: MySQL configuration, initialization scripts, and schema details for Televisión Écija Media Manager
+---
+
+## Overview
+
+Televisión Écija Media Manager uses MySQL 8.0 as its database engine. The database is automatically initialized when the container first starts using the provided `init.sql` script.
+
+## Database Configuration
+
+### Container Details
+
+- **Image**: MySQL 8.0
+- **Container Name**: `file_manager_mysql`
+- **Port**: 3306 (exposed externally)
+- **Database Name**: `administradorMultimedia`
+- **Character Set**: UTF-8 (default)
+
+### Dockerfile
+
+The database service uses a custom Dockerfile:
+
+```dockerfile
+FROM mysql:8.0
+
+# Copy custom MySQL configuration
+COPY ./my.cnf /etc/mysql/conf.d/my.cnf
+
+# Copy initialization scripts
+COPY init.sql /docker-entrypoint-initdb.d/
+COPY bd.csv /bd.csv
+
+# Expose port
+EXPOSE 3306
+```
+
+### Initialization Process
+
+MySQL's official image automatically executes SQL scripts placed in `/docker-entrypoint-initdb.d/` during first-time container initialization:
+
+1. Container starts for the first time
+2. MySQL initializes data directory
+3. `init.sql` executes automatically
+4. Database schema and default users are created
+
+<Warning>
+Initialization scripts only run when the MySQL data directory is empty. If you need to re-initialize:
+
+```bash
+# Stop and remove containers
+docker-compose down
+
+# Remove the MySQL volume
+docker volume rm file_manager_mysql_data
+
+# Restart (will re-initialize)
+docker-compose up -d database
+```
+</Warning>
+
+## Database Schema
+
+The complete schema is defined in `db/init.sql`:
+
+### Database Creation
+
+```sql
+DROP DATABASE IF EXISTS administradorMultimedia;
+CREATE DATABASE administradorMultimedia;
+USE administradorMultimedia;
+```
+
+### Table: users
+
+Stores user accounts and authentication information.
+
+```sql
+CREATE TABLE users (
+    id_user INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE,
+    contrasena VARCHAR(255),
+    CHECK (CHAR_LENGTH(contrasena) >= 4),
+    rol VARCHAR(30) DEFAULT "viewer",
+    CHECK (rol IN ("admin", "moderator", "viewer"))
+);
+```
+
+**Fields:**
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `id_user` | INT | PRIMARY KEY, AUTO_INCREMENT | User unique identifier |
+| `nombre` | VARCHAR(50) | UNIQUE | Username (login name) |
+| `contrasena` | VARCHAR(255) | LENGTH >= 4 | Bcrypt hashed password |
+| `rol` | VARCHAR(30) | DEFAULT "viewer", ENUM | User role: admin, moderator, or viewer |
+
+**Roles:**
+- `admin` - Full permissions: upload, edit, delete, manage users
+- `moderator` - Can upload and edit content
+- `viewer` - Read-only access
+
+### Table: sessions
+
+Stores active JWT authentication sessions.
+
+```sql
+CREATE TABLE sessions (
+    id_sesion INT AUTO_INCREMENT PRIMARY KEY,
+    id_user INT,
+    key_session VARCHAR(512),
+    fecha_inicio TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_user) REFERENCES users(id_user) ON DELETE CASCADE
+);
+```
+
+**Fields:**
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `id_sesion` | INT | PRIMARY KEY, AUTO_INCREMENT | Session unique identifier |
+| `id_user` | INT | FOREIGN KEY | Reference to users table |
+| `key_session` | VARCHAR(512) | | JWT token string |
+| `fecha_inicio` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Session creation time |
+
+**Cascading:** When a user is deleted, all their sessions are automatically deleted.
+
+### Table: media_types
+
+Defines categories of media content (e.g., "Cortometraje", "Documental").
+
+```sql
+CREATE TABLE media_types (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(512) UNIQUE
+);
+```
+
+**Fields:**
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `id` | INT | PRIMARY KEY, AUTO_INCREMENT | Type unique identifier |
+| `name` | VARCHAR(512) | UNIQUE | Type name/label |
+
+**Examples:** "Cortometraje", "Documental", "Programa", "Noticia", "Entrevista"
+
+### Table: media_locations
+
+Stores filesystem paths where media files are stored.
+
+```sql
+CREATE TABLE media_locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    path TEXT
+);
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | INT | Location unique identifier |
+| `path` | TEXT | Filesystem path |
+
+**Example paths:**
+- `/usr/src/app/uploads/2023/`
+- `/disk0/2024/`
+- `/media/archive/`
+
+### Table: media_items
+
+Core table storing all media file metadata.
+
+```sql
+CREATE TABLE media_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title TEXT,
+    description TEXT,
+    publication_year INT,
+    media_path TEXT,
+    filename TEXT,
+    media_type_id INT,
+    media_location_id INT,
+    tags TEXT,
+    date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    date_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (media_location_id) REFERENCES media_locations(id) ON DELETE CASCADE,
+    FOREIGN KEY (media_type_id) REFERENCES media_types(id) ON DELETE SET NULL
+);
+```
+
+**Fields:**
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `id` | INT | PRIMARY KEY, AUTO_INCREMENT | Media item unique identifier |
+| `title` | TEXT | | Media title/name |
+| `description` | TEXT | | Detailed description |
+| `publication_year` | INT | | Year of publication/creation |
+| `media_path` | TEXT | | Full filesystem path to file |
+| `filename` | TEXT | | Original filename |
+| `media_type_id` | INT | FOREIGN KEY | Reference to media_types |
+| `media_location_id` | INT | FOREIGN KEY | Reference to media_locations |
+| `tags` | TEXT | | Comma-separated tags: "tag1,tag2,tag3" |
+| `date_added` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Upload timestamp |
+| `date_updated` | TIMESTAMP | AUTO UPDATE | Last modification timestamp |
+
+**Cascading:**
+- When a location is deleted, all media items in that location are deleted
+- When a type is deleted, media items keep their reference but set to NULL
+
+**Example record:**
+```json
+{
+  "id": 123,
+  "title": "Festival de Cine 2023",
+  "description": "Cobertura completa del festival",
+  "publication_year": 2023,
+  "media_path": "/disk0/2023/festival_cine.mp4",
+  "filename": "festival_cine.mp4",
+  "media_type_id": 1,
+  "media_location_id": 3,
+  "tags": "festival,cine,2023,cultura"
+}
+```
+
+### Table: media_author
+
+Many-to-many relationship table linking media items to their authors (users).
+
+```sql
+CREATE TABLE media_author (
+    media_id INT,
+    user_id INT,
+    PRIMARY KEY (media_id, user_id),
+    FOREIGN KEY (media_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id_user) ON DELETE CASCADE
+);
+```
+
+**Fields:**
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `media_id` | INT | FOREIGN KEY, PRIMARY KEY | Reference to media_items |
+| `user_id` | INT | FOREIGN KEY, PRIMARY KEY | Reference to users |
+
+**Composite Primary Key:** A user can only be listed once per media item.
+
+**Cascading:** When either the media item or user is deleted, the relationship is automatically removed.
+
+## Default Users
+
+Two default user accounts are created during initialization:
+
+### Admin User
+
+```sql
+INSERT INTO users (nombre, contrasena, rol) 
+VALUES (
+    "admin", 
+    "$2b$12$vbj7TFESQuAcFTBXgacpuu7GGewrfmuOVN8vxQxE2DIaoqSHFi69e", 
+    "admin"
+);
+```
+
+**Credentials:**
+- **Username**: `admin`
+- **Password**: `admin123` (hashed with bcrypt)
+- **Role**: `admin`
+
+<Warning>
+**Change the default admin password immediately** after first deployment:
+
+```sql
+-- Connect to database
+USE administradorMultimedia;
+
+-- Update password (hash generated by API /api/register endpoint)
+UPDATE users SET contrasena = '$2b$12$YOUR_NEW_HASH' WHERE nombre = 'admin';
+```
+
+Or use the API to create a new admin user and delete the default one.
+</Warning>
+
+### Viewer User
+
+```sql
+INSERT INTO users (nombre, contrasena, rol) 
+VALUES (
+    "viewer", 
+    "$2a$12$RCCN9wh0S27yBoUkYaUb4us6m9J8IO6UC/rtpeKLlxXPJ/luoJZE6", 
+    "viewer"
+);
+```
+
+**Credentials:**
+- **Username**: `viewer`
+- **Password**: `viewer123` (hashed with bcrypt)
+- **Role**: `viewer`
+
+## Database Relationships
+
+### Entity Relationship Diagram
+
+```
+┌──────────────┐
+│    users     │
+├──────────────┤
+│ id_user (PK) │───┐
+│ nombre       │   │
+│ contrasena   │   │
+│ rol          │   │
+└──────────────┘   │
+       │           │
+       │           │
+       ▼           │
+┌──────────────┐   │
+│  sessions    │   │
+├──────────────┤   │
+│ id_sesion    │   │
+│ id_user (FK) │   │
+│ key_session  │   │
+└──────────────┘   │
+                   │
+┌─────────────────┐│
+│  media_author   ││
+├─────────────────┤│
+│ media_id (FK)   ││
+│ user_id (FK) ───┘
+└─────────────────┘
+       │
+       │
+       ▼
+┌──────────────────┐       ┌──────────────────┐
+│  media_items     │       │  media_types     │
+├──────────────────┤       ├──────────────────┤
+│ id (PK)          │       │ id (PK)          │
+│ title            │       │ name             │
+│ description      │       └──────────────────┘
+│ media_type_id ───┼────────────▲
+│ media_location_id│
+│ media_path       │       ┌──────────────────┐
+│ filename         │       │ media_locations  │
+│ tags             │       ├──────────────────┤
+└──────────────────┘       │ id (PK)          │
+       │                   │ path             │
+       └───────────────────▶└──────────────────┘
+```
+
+## Connection Configuration
+
+The API connects using these settings:
+
+```javascript
+const connection = mysql.createPool({
+    host: process.env.HOST,           // "database"
+    user: process.env.USER,           // "root"
+    password: process.env.PASSWORD,   // "root"
+    database: process.env.DATABASE,   // "administradorMultimedia"
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+```
+
+**Connection Pool:**
+- Maximum 10 concurrent connections
+- Requests queue when pool is full
+- Automatic connection recycling
+
+## Database Access
+
+### Via Docker
+
+```bash
+# Access MySQL CLI
+docker exec -it file_manager_mysql mysql -uroot -proot administradorMultimedia
+
+# Run SQL file
+docker exec -i file_manager_mysql mysql -uroot -proot administradorMultimedia < backup.sql
+
+# Export database
+docker exec file_manager_mysql mysqldump -uroot -proot administradorMultimedia > backup.sql
+```
+
+### Via External Client
+
+Connect using any MySQL client (e.g., MySQL Workbench, DBeaver):
+
+- **Host**: `localhost` (or server IP)
+- **Port**: `3306`
+- **Username**: `root`
+- **Password**: `root` (change in production)
+- **Database**: `administradorMultimedia`
+
+<Warning>
+**Production Security:**
+
+For production deployments:
+1. Remove external port mapping (remove `ports:` section in docker-compose.yml)
+2. Use firewall rules to restrict access
+3. Create limited-privilege users for the API instead of using root
+4. Enable SSL/TLS for MySQL connections
+</Warning>
+
+## Common Queries
+
+### View all users and roles
+
+```sql
+SELECT id_user, nombre, rol FROM users ORDER BY nombre;
+```
+
+### View media items with full details
+
+```sql
+SELECT 
+    m.id,
+    m.title,
+    m.publication_year,
+    ct.name AS media_type,
+    ml.path AS location_path,
+    GROUP_CONCAT(a.nombre) AS authors
+FROM media_items m
+LEFT JOIN media_types ct ON m.media_type_id = ct.id
+LEFT JOIN media_locations ml ON m.media_location_id = ml.id
+LEFT JOIN media_author ma ON m.id = ma.media_id
+LEFT JOIN users a ON ma.user_id = a.id_user
+GROUP BY m.id
+ORDER BY m.date_added DESC;
+```
+
+### Count media by type
+
+```sql
+SELECT 
+    ct.name,
+    COUNT(*) as total
+FROM media_items m
+JOIN media_types ct ON m.media_type_id = ct.id
+GROUP BY ct.name;
+```
+
+### Find media by tag
+
+```sql
+SELECT * FROM media_items 
+WHERE tags LIKE '%festival%'
+ORDER BY date_added DESC;
+```
+
+## Maintenance
+
+### Database Size
+
+Check database size:
+
+```sql
+SELECT 
+    table_schema AS 'Database',
+    ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) AS 'Size (MB)'
+FROM information_schema.tables 
+WHERE table_schema = 'administradorMultimedia'
+GROUP BY table_schema;
+```
+
+### Table Optimization
+
+```sql
+OPTIMIZE TABLE users;
+OPTIMIZE TABLE media_items;
+OPTIMIZE TABLE sessions;
+```
+
+### Clean Old Sessions
+
+Remove sessions older than 30 days:
+
+```sql
+DELETE FROM sessions 
+WHERE fecha_inicio < DATE_SUB(NOW(), INTERVAL 30 DAY);
+```
+
+## Troubleshooting
+
+### Cannot connect to database
+
+**Check container is running:**
+```bash
+docker-compose ps database
+```
+
+**View database logs:**
+```bash
+docker-compose logs database
+```
+
+**Verify credentials:**
+```bash
+docker exec file_manager_mysql mysql -uroot -proot -e "SHOW DATABASES;"
+```
+
+### Schema not initialized
+
+**Symptom:** Tables don't exist
+
+**Solution:**
+```bash
+# Stop and remove volume
+docker-compose down
+docker volume rm file_manager_mysql_data
+
+# Restart to re-initialize
+docker-compose up -d database
+
+# Check initialization logs
+docker-compose logs database | grep init.sql
+```
+
+### Permission errors
+
+**Check MySQL user permissions:**
+```sql
+SHOW GRANTS FOR 'root'@'%';
+```
+
+## Next Steps
+
+- Set up [Backup & Restore](/deployment/backup-restore) procedures
+- Review [Environment Variables](/deployment/environment-variables)
+- Configure [Docker Compose](/deployment/docker) deployment

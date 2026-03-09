@@ -1,0 +1,249 @@
+---
+title: "System Statistics"
+description: "Retrieve comprehensive media library statistics and storage metrics"
+---
+
+## Get Statistics
+
+<ParamField path="GET" required>
+  /api/stats
+</ParamField>
+
+Retrieve comprehensive statistics about the media library, including total items, breakdown by type and year, and storage information.
+
+### Authorization
+
+Requires valid authentication token (any role).
+
+### SQL Queries
+
+**Total media count:**
+```sql
+SELECT COUNT(*) as total FROM media_items
+```
+
+**Breakdown by media type:**
+```sql
+SELECT ct.name, COUNT(*) as total
+FROM media_items m
+JOIN media_types ct ON m.media_type_id = ct.id
+GROUP BY ct.name
+```
+
+**Breakdown by publication year:**
+```sql
+SELECT publication_year, COUNT(*) as total
+FROM media_items
+WHERE publication_year IS NOT NULL
+GROUP BY publication_year
+ORDER BY publication_year DESC
+```
+
+**File paths for storage calculation:**
+```sql
+SELECT media_path FROM media_items
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from `/api/login`
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="stats" type="object">
+  Statistics object containing all metrics
+  
+  <ResponseField name="total" type="integer">
+    Total number of media items in the library
+  </ResponseField>
+  
+  <ResponseField name="byType" type="array">
+    Media count grouped by type
+    
+    <ResponseField name="name" type="string">
+      Media type name (e.g., "Video", "Audio")
+    </ResponseField>
+    
+    <ResponseField name="total" type="integer">
+      Number of items of this type
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="byYear" type="array">
+    Media count grouped by publication year
+    
+    <ResponseField name="publication_year" type="integer">
+      Publication year
+    </ResponseField>
+    
+    <ResponseField name="total" type="integer">
+      Number of items from this year
+    </ResponseField>
+  </ResponseField>
+  
+  <ResponseField name="storage" type="object">
+    Storage and disk usage information
+    
+    <ResponseField name="bytes" type="integer">
+      Total size of all media files in bytes
+    </ResponseField>
+    
+    <ResponseField name="formatted" type="string">
+      Human-readable size (e.g., "1.5 GB")
+    </ResponseField>
+    
+    <ResponseField name="total" type="integer">
+      Total disk space in bytes (Linux/macOS only)
+    </ResponseField>
+    
+    <ResponseField name="free" type="integer">
+      Free disk space in bytes (Linux/macOS only)
+    </ResponseField>
+    
+    <ResponseField name="usedPercentage" type="number">
+      Percentage of disk space used (Linux/macOS only)
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://api.example.com/api/stats \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "stats": {
+    "total": 152,
+    "byType": [
+      {
+        "name": "Video",
+        "total": 98
+      },
+      {
+        "name": "Audio",
+        "total": 34
+      },
+      {
+        "name": "Document",
+        "total": 20
+      }
+    ],
+    "byYear": [
+      {
+        "publication_year": 2024,
+        "total": 45
+      },
+      {
+        "publication_year": 2023,
+        "total": 67
+      },
+      {
+        "publication_year": 2022,
+        "total": 40
+      }
+    ],
+    "storage": {
+      "bytes": 52428800000,
+      "formatted": "48.8 GB",
+      "total": 1000000000000,
+      "free": 500000000000,
+      "usedPercentage": 50.0
+    }
+  }
+}
+```
+
+---
+
+## Storage Calculation Details
+
+### Media File Size
+
+The endpoint calculates total media storage by:
+
+1. Querying all `media_path` values from `media_items`
+2. Using `fs.statSync()` to get file size for each existing file
+3. Summing all file sizes in bytes
+
+```javascript
+for (const file of files) {
+    if (fs.existsSync(file.media_path)) {
+        const stats = fs.statSync(file.media_path);
+        totalBytes += stats.size;
+    }
+}
+```
+
+### Disk Space Information (Linux/macOS)
+
+On Linux and macOS systems, the endpoint uses the `df` command to get disk statistics:
+
+```bash
+df -k "/path/to/media"
+```
+
+This provides:
+- **total**: Total disk capacity
+- **used**: Used disk space  
+- **free**: Available disk space
+- **usedPercentage**: Percentage of disk in use
+
+<Note>
+Disk space statistics are only available on Linux and macOS platforms. On other platforms, these values will be 0.
+</Note>
+
+### Size Formatting
+
+File sizes are formatted using the `formatBytes()` helper function:
+
+```javascript
+function formatBytes(bytes, decimals = 2) {
+    if (bytes === 0) return '0 Bytes';
+    
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+```
+
+---
+
+## Use Cases
+
+### Dashboard Metrics
+
+Use this endpoint to populate an admin dashboard with:
+- Total media count
+- Distribution by media type (for charts)
+- Historical data by year
+- Storage capacity planning
+
+### Monitoring
+
+Monitor system health by tracking:
+- Storage growth trends
+- Disk space availability  
+- Content distribution patterns
+
+### Reporting
+
+Generate reports on:
+- Library composition
+- Year-over-year growth
+- Storage utilization

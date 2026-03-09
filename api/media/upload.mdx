@@ -1,0 +1,177 @@
+---
+title: "Upload Media"
+api: "POST /api/upload-content"
+description: "Upload a new media file with metadata to the system"
+---
+
+## Overview
+
+This endpoint allows authenticated users with appropriate permissions to upload media files (videos, images, documents) to the system. The endpoint handles multipart/form-data uploads and stores the file in the configured media location.
+
+## Authentication
+
+Requires JWT token via `Authorization: Bearer <token>` header.
+
+### Permission Requirements
+
+- **Viewers**: Cannot upload content (403 Forbidden)
+- **Moderators**: Can upload content
+- **Admins**: Can upload content
+
+## Request
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `multipart/form-data` for file uploads
+</ParamField>
+
+### Body Parameters (multipart/form-data)
+
+<ParamField body="file" type="file" required>
+  The media file to upload. Supports videos, images, and documents.
+</ParamField>
+
+<ParamField body="title" type="string" required>
+  The title of the media item
+</ParamField>
+
+<ParamField body="description" type="string">
+  Description of the media content
+</ParamField>
+
+<ParamField body="publication_year" type="integer">
+  Year the content was published or created
+</ParamField>
+
+<ParamField body="media_type_id" type="integer" required>
+  ID of the media type category (from `/api/media-type`)
+</ParamField>
+
+<ParamField body="media_location_id" type="integer" required>
+  ID of the storage location where the file should be saved
+</ParamField>
+
+<ParamField body="tags" type="string">
+  Comma-separated tags for categorization and search
+</ParamField>
+
+<ParamField body="author_ids" type="array" required>
+  Array or JSON string of user IDs to associate as authors. Example: `[1, 2, 3]` or `"[1,2,3]"`
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the upload was successful
+</ResponseField>
+
+<ResponseField name="id" type="integer">
+  The ID of the newly created media item
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  The full file system path where the file was saved
+</ResponseField>
+
+## Database Operations
+
+### SQL Queries Used
+
+**Get media location path:**
+```sql
+SELECT path FROM media_locations WHERE id = ?
+```
+
+**Insert media item:**
+```sql
+INSERT INTO media_items 
+(title, description, publication_year, media_path, filename, media_type_id, media_location_id, tags)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+```
+
+**Insert author associations:**
+```sql
+INSERT INTO media_author (media_id, user_id) VALUES (?, ?)
+```
+
+## File Handling Process
+
+1. **Upload to temporary location**: Multer stores the file temporarily using `diskStorage`
+2. **Filename generation**: Files are renamed with timestamp prefix: `{timestamp}_{originalname}`
+3. **Location resolution**: Retrieves the storage path from `media_locations` table
+4. **Database insertion**: Creates the media item record in `media_items` table
+5. **Author linking**: Creates associations in `media_author` junction table
+6. **File move**: Moves file from temp location to final destination
+
+## Example Request
+
+```bash
+curl -X POST https://api.example.com/api/upload-content \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -F "file=@/path/to/video.mp4" \
+  -F "title=Interview with Mayor" \
+  -F "description=Annual interview discussing city developments" \
+  -F "publication_year=2026" \
+  -F "media_type_id=1" \
+  -F "media_location_id=1" \
+  -F "tags=interview,politics,2026" \
+  -F 'author_ids=[1,3]'
+```
+
+## Example Response
+
+```json
+{
+  "success": true,
+  "id": 42,
+  "path": "/var/media/1709989200000_video.mp4"
+}
+```
+
+## Error Responses
+
+### 400 Bad Request
+```json
+{
+  "error": "Archivo requerido"
+}
+```
+Returned when no file is included in the request.
+
+### 403 Forbidden
+```json
+{
+  "error": "No tienes permisos para subir contenido"
+}
+```
+Returned when a viewer role attempts to upload content.
+
+### 401 Unauthorized
+```json
+{
+  "error": "Token requerido"
+}
+```
+Returned when no authentication token is provided.
+
+### 500 Internal Server Error
+```json
+{
+  "success": false,
+  "error": "Database connection error"
+}
+```
+Returned when a server-side error occurs during processing.
+
+## Implementation Notes
+
+- The `author_ids` field accepts both JSON arrays and JSON strings
+- File extensions are preserved from the original filename
+- Storage directories are created automatically if they don't exist
+- The `date_added` field is automatically set to the current timestamp
+- Files are physically stored in the location specified by `media_location_id`

@@ -1,0 +1,317 @@
+---
+title: "User Management"
+description: "Manage system users with role-based access control"
+---
+
+## Get All Users
+
+<ParamField path="GET" required>
+  /api/users
+</ParamField>
+
+Retrieve all users in the system. **Admin only**.
+
+### Authorization
+
+Requires `admin` role. Token must be included in Authorization header.
+
+```sql
+SELECT id_user, nombre, rol
+FROM users
+ORDER BY nombre ASC
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from `/api/login`
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of user objects
+  
+  <ResponseField name="id_user" type="integer">
+    Unique user identifier
+  </ResponseField>
+  
+  <ResponseField name="nombre" type="string">
+    Username
+  </ResponseField>
+  
+  <ResponseField name="rol" type="string">
+    User role: `admin`, `moderator`, or `viewer`
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://api.example.com/api/users \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_user": 1,
+      "nombre": "admin",
+      "rol": "admin"
+    },
+    {
+      "id_user": 2,
+      "nombre": "editor",
+      "rol": "moderator"
+    },
+    {
+      "id_user": 3,
+      "nombre": "viewer",
+      "rol": "viewer"
+    }
+  ]
+}
+```
+
+---
+
+## Create User
+
+<ParamField path="POST" required>
+  /api/users
+</ParamField>
+
+Create a new user account. **Admin only**.
+
+### Authorization
+
+Requires `admin` role.
+
+```sql
+INSERT INTO users (nombre, contrasena, rol)
+VALUES (?, ?, ?)
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  application/json
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="username" type="string" required>
+  Username for the new user
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Password (will be hashed with bcrypt)
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  User role: `admin`, `moderator`, or `viewer`
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/users \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser",
+    "password": "securepassword123",
+    "role": "moderator"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+## Update User
+
+<ParamField path="PUT" required>
+  /api/users/:id
+</ParamField>
+
+Update user details. **Admin only**.
+
+### Authorization
+
+Requires `admin` role.
+
+```sql
+UPDATE users SET nombre = ?, rol = ?
+WHERE id_user = ?
+```
+
+If password is provided:
+
+```sql
+UPDATE users SET nombre = ?, rol = ?, contrasena = ?
+WHERE id_user = ?
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  application/json
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  User ID to update
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="username" type="string" required>
+  Updated username
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Updated role: `admin`, `moderator`, or `viewer`
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password (optional, will be hashed with bcrypt)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X PUT https://api.example.com/api/users/3 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "updateduser",
+    "role": "moderator",
+    "password": "newpassword456"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+## Delete User
+
+<ParamField path="DELETE" required>
+  /api/users/:id
+</ParamField>
+
+Delete a user account. **Admin only**.
+
+<Warning>
+Users cannot delete themselves. The endpoint will return an error if you attempt to delete your own account.
+</Warning>
+
+### Authorization
+
+Requires `admin` role.
+
+```sql
+DELETE FROM users WHERE id_user = ?
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  User ID to delete (cannot be your own ID)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X DELETE https://api.example.com/api/users/3 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+### Error Response (Self-deletion)
+
+```json
+{
+  "error": "No puedes eliminarte a ti mismo"
+}
+```
+
+---
+
+## Role-Based Permissions
+
+All user management endpoints require the `admin` role:
+
+- **GET /api/users**: Admin only
+- **POST /api/users**: Admin only  
+- **PUT /api/users/:id**: Admin only
+- **DELETE /api/users/:id**: Admin only (except self-deletion)
+
+Attempting to access these endpoints without admin privileges returns:
+
+```json
+{
+  "error": "Solo admin puede [action] usuarios"
+}
+```

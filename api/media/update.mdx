@@ -1,0 +1,205 @@
+---
+title: "Update Media Item"
+api: "PUT /api/files/:id"
+description: "Update metadata and authors for an existing media item"
+---
+
+## Overview
+
+This endpoint allows authorized users to update the metadata of an existing media item, including title, description, publication year, media type, tags, and associated authors. Note that the actual file cannot be replaced through this endpoint.
+
+## Authentication
+
+Requires JWT token via `Authorization: Bearer <token>` header.
+
+### Permission Requirements
+
+- **Viewers**: Cannot update content (403 Forbidden)
+- **Moderators**: Can update content
+- **Admins**: Can update content
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the media item to update
+</ParamField>
+
+## Request
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+</ParamField>
+
+<ParamField header="Content-Type" type="string">
+  Can be `application/json` or `multipart/form-data`
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="title" type="string" required>
+  Updated title for the media item
+</ParamField>
+
+<ParamField body="description" type="string">
+  Updated description
+</ParamField>
+
+<ParamField body="publication_year" type="integer">
+  Updated publication year
+</ParamField>
+
+<ParamField body="media_type_id" type="integer" required>
+  Updated media type category ID
+</ParamField>
+
+<ParamField body="tags" type="string">
+  Updated comma-separated tags
+</ParamField>
+
+<ParamField body="author_ids" type="array">
+  Array or JSON string of user IDs to associate as authors. Replaces all existing author associations. Example: `[1, 2, 3]` or `"[1,2,3]"`
+</ParamField>
+
+## SQL Queries
+
+### Update Media Item
+
+```sql
+UPDATE media_items 
+SET title = ?, 
+    description = ?, 
+    publication_year = ?, 
+    media_type_id = ?, 
+    tags = ?,
+    date_updated = CURRENT_TIMESTAMP
+WHERE id = ?
+```
+
+### Replace Author Associations
+
+**Delete existing associations:**
+```sql
+DELETE FROM media_author WHERE media_id = ?
+```
+
+**Insert new associations:**
+```sql
+INSERT INTO media_author (media_id, user_id) VALUES (?, ?)
+```
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the update was successful
+</ResponseField>
+
+## Example Request (JSON)
+
+```bash
+curl -X PUT https://api.example.com/api/files/42 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Updated: Interview with Mayor",
+    "description": "Revised description with additional context",
+    "publication_year": 2026,
+    "media_type_id": 1,
+    "tags": "interview,politics,2026,updated",
+    "author_ids": [1, 3, 5]
+  }'
+```
+
+## Example Request (Multipart)
+
+```bash
+curl -X PUT https://api.example.com/api/files/42 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -F "title=Updated: Interview with Mayor" \
+  -F "description=Revised description" \
+  -F "publication_year=2026" \
+  -F "media_type_id=1" \
+  -F "tags=interview,politics,2026,updated" \
+  -F 'author_ids=[1,3,5]'
+```
+
+## Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+## Error Responses
+
+### 403 Forbidden (Insufficient Permissions)
+```json
+{
+  "error": "No tienes permisos"
+}
+```
+Returned when a viewer role attempts to update content.
+
+### 401 Unauthorized
+```json
+{
+  "error": "Token requerido"
+}
+```
+Returned when no authentication token is provided.
+
+### 404 Not Found
+No explicit error is returned if the media item doesn't exist. The operation will complete with `success: true` but affect 0 rows. To verify existence, use `GET /api/files/:id` before updating.
+
+### 500 Internal Server Error
+```json
+{
+  "error": "Foreign key constraint fails"
+}
+```
+Returned when invalid references are provided (e.g., non-existent author_ids or media_type_id).
+
+## Update Behavior
+
+### Timestamp Update
+
+- The `date_updated` field is automatically set to `CURRENT_TIMESTAMP` on every update
+- The `date_added` field remains unchanged
+
+### Author Replacement
+
+The author update process is **destructive**:
+
+1. **All existing author associations are deleted**
+2. **New associations are inserted based on `author_ids`**
+3. If `author_ids` is not provided, existing associations remain unchanged
+4. If `author_ids` is an empty array, all author associations are removed
+
+### Partial Updates
+
+The endpoint does not support partial updates. All fields (title, description, publication_year, media_type_id, tags) must be provided in each request, even if only one field has changed.
+
+## What Cannot Be Updated
+
+- **File itself**: The physical media file cannot be replaced
+- **File path**: The `media_path` and `filename` fields are immutable
+- **Storage location**: The `media_location_id` cannot be changed
+- **Creation date**: The `date_added` timestamp is preserved
+- **Media ID**: The primary key cannot be modified
+
+## Implementation Notes
+
+- The endpoint accepts both `application/json` and `multipart/form-data` content types
+- Multer middleware is configured but doesn't expect a file in this endpoint
+- The `author_ids` field can be passed as either a JSON array or a JSON string
+- All database operations are performed sequentially, not in a transaction
+- No rollback occurs if author insertion fails after the main update succeeds
+
+## Best Practices
+
+1. **Fetch before update**: Use `GET /api/files/:id` to retrieve current values
+2. **Preserve unchanged fields**: Include all fields even if only updating one
+3. **Validate author IDs**: Ensure all author IDs exist before sending the request
+4. **Handle errors gracefully**: Check for 500 errors indicating constraint violations

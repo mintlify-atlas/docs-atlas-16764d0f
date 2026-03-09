@@ -1,0 +1,177 @@
+---
+title: "Media Types"
+description: "Manage media content type classifications"
+---
+
+## Get All Media Types
+
+<ParamField path="GET" required>
+  /api/media-type
+</ParamField>
+
+Retrieve all available media content types.
+
+### Authorization
+
+Requires valid authentication token (any role).
+
+```sql
+SELECT id, name
+FROM media_types
+ORDER BY name ASC
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from `/api/login`
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of media type objects
+  
+  <ResponseField name="id" type="integer">
+    Unique media type identifier
+  </ResponseField>
+  
+  <ResponseField name="name" type="string">
+    Media type name (e.g., "Video", "Audio", "Document")
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://api.example.com/api/media-type \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Video"
+    },
+    {
+      "id": 2,
+      "name": "Audio"
+    },
+    {
+      "id": 3,
+      "name": "Document"
+    },
+    {
+      "id": 4,
+      "name": "Image"
+    }
+  ]
+}
+```
+
+---
+
+## Create Media Type
+
+<ParamField path="POST" required>
+  /api/media-type
+</ParamField>
+
+Create a new media content type. Requires `admin` or `moderator` role.
+
+### Authorization
+
+Requires `admin` or `moderator` role.
+
+```sql
+INSERT INTO media_types (name) VALUES (?)
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  application/json
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="name" type="string" required>
+  Name of the new media type
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="id" type="integer">
+  ID of the newly created media type
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/media-type \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Podcast"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "id": 5
+}
+```
+
+---
+
+## Role-Based Permissions
+
+Media type endpoints have the following permission requirements:
+
+- **GET /api/media-type**: Any authenticated user
+- **POST /api/media-type**: Admin or moderator
+
+Attempting to create a media type without proper permissions returns:
+
+```json
+{
+  "error": "No tienes permisos"
+}
+```
+
+---
+
+## Usage in Media Items
+
+Media types are referenced when creating or updating media items:
+
+```json
+{
+  "title": "Sample Video",
+  "description": "A sample video file",
+  "media_type_id": 1,
+  "publication_year": 2024
+}
+```
+
+The media type ID links to the `media_types` table via the `media_type_id` foreign key in the `media_items` table.

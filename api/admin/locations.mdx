@@ -1,0 +1,329 @@
+---
+title: "Media Locations"
+description: "Manage storage locations for media files"
+---
+
+## Get All Locations
+
+<ParamField path="GET" required>
+  /api/locations
+</ParamField>
+
+Retrieve all configured media storage locations.
+
+### Authorization
+
+Requires valid authentication token (any role).
+
+```sql
+SELECT id, path FROM media_locations ORDER BY path ASC
+```
+
+If no locations exist, creates a default location:
+
+```sql
+INSERT INTO media_locations (path) VALUES (?)
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token obtained from `/api/login`
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="locations" type="array">
+  Array of location objects
+  
+  <ResponseField name="id" type="integer">
+    Unique location identifier
+  </ResponseField>
+  
+  <ResponseField name="path" type="string">
+    Filesystem path for media storage
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://api.example.com/api/locations \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "locations": [
+    {
+      "id": 1,
+      "path": "/var/media/videos"
+    },
+    {
+      "id": 2,
+      "path": "/var/media/archives"
+    }
+  ]
+}
+```
+
+---
+
+## Create Location
+
+<ParamField path="POST" required>
+  /api/locations
+</ParamField>
+
+Create a new media storage location. Requires `admin` or `moderator` role.
+
+### Authorization
+
+Requires `admin` or `moderator` role.
+
+```sql
+INSERT INTO media_locations (path) VALUES (?)
+```
+
+The endpoint also creates the directory if it doesn't exist:
+
+```javascript
+if (!fs.existsSync(newPath)) fs.mkdirSync(newPath, { recursive: true });
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  application/json
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="path" type="string" required>
+  Filesystem path for the new storage location
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="id" type="integer">
+  ID of the newly created location
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Path of the created location
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/locations \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/var/media/new-archive"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "id": 3,
+  "path": "/var/media/new-archive"
+}
+```
+
+---
+
+## Update Location
+
+<ParamField path="PUT" required>
+  /api/locations/:id
+</ParamField>
+
+Update an existing media location path. Requires `admin` or `moderator` role.
+
+### Authorization
+
+Requires `admin` or `moderator` role.
+
+```sql
+UPDATE media_locations SET path = ? WHERE id = ?
+```
+
+Creates the new directory if it doesn't exist:
+
+```javascript
+if (!fs.existsSync(newPath)) fs.mkdirSync(newPath, { recursive: true });
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  application/json
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Location ID to update
+</ParamField>
+
+### Body Parameters
+
+<ParamField body="path" type="string" required>
+  New filesystem path for the location
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="id" type="integer">
+  ID of the updated location
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Updated path
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X PUT https://api.example.com/api/locations/3 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/var/media/updated-archive"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "id": 3,
+  "path": "/var/media/updated-archive"
+}
+```
+
+---
+
+## Delete Location
+
+<ParamField path="DELETE" required>
+  /api/locations/:id
+</ParamField>
+
+Delete a media storage location. **Admin only**.
+
+<Warning>
+**CASCADE DELETION WARNING**: Deleting a location will also delete all media items associated with that location due to foreign key constraints. This operation also recursively deletes the physical directory and all its contents.
+</Warning>
+
+### Authorization
+
+Requires `admin` role.
+
+```sql
+DELETE FROM media_locations WHERE id = ?
+```
+
+Physical directory deletion:
+
+```javascript
+if (fs.existsSync(folderPath)) fs.rmdirSync(folderPath, { recursive: true });
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="id" type="integer" required>
+  Location ID to delete
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Operation status
+</ResponseField>
+
+<ResponseField name="id" type="integer">
+  ID of the deleted location
+</ResponseField>
+
+<ResponseField name="path" type="string">
+  Path of the deleted location
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X DELETE https://api.example.com/api/locations/3 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "id": 3,
+  "path": "/var/media/old-archive"
+}
+```
+
+---
+
+## Role-Based Permissions
+
+Location management endpoints have different permission requirements:
+
+- **GET /api/locations**: Any authenticated user
+- **POST /api/locations**: Admin or moderator
+- **PUT /api/locations/:id**: Admin or moderator
+- **DELETE /api/locations/:id**: Admin only
+
+Attempting to access restricted endpoints returns:
+
+```json
+{
+  "error": "No tienes permisos para [action] ubicaciones"
+}
+```
+
+Or for admin-only operations:
+
+```json
+{
+  "error": "Solo admin puede eliminar ubicaciones"
+}
+```

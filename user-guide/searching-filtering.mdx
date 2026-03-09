@@ -1,0 +1,358 @@
+---
+title: "Searching & Filtering"
+description: "How to search for media files, apply filters, and navigate paginated results"
+---
+
+## Overview
+
+Televisión Écija Media Manager provides powerful search and filtering capabilities to help you find media content quickly. The system uses real-time search with debouncing, content type filters, and multiple sorting options.
+
+## Search Interface
+
+The search panel is located at the top of the main page (`front/src/app/index/page.html:80-140`):
+
+```html
+<div class="search-panel">
+  <div class="search-row">
+    <!-- Search input -->
+    <!-- Content type filter -->
+    <!-- Upload button -->
+  </div>
+  <div class="sort-row">
+    <!-- Sort options -->
+  </div>
+</div>
+```
+
+## Text Search
+
+### How to Search
+
+1. Locate the search input at the top of the page
+2. Type your search query in the **"Buscar por nombre de archivo..."** field
+3. Results update automatically after **500ms** of typing inactivity
+
+### Search Behavior
+
+The search implements **debounced input** (`front/src/components/file-grid/file-grid.component.ts:119-125`):
+
+```typescript
+this.searchSubject.pipe(
+  debounceTime(500),          // Wait 500ms after typing stops
+  distinctUntilChanged(),     // Only search if term changed
+  takeUntil(this.destroy$)
+).subscribe(() => this.resetAndSearch());
+```
+
+<Info>
+**Debouncing** means the search waits 500 milliseconds after you stop typing before executing. This reduces unnecessary API calls and improves performance.
+</Info>
+
+### What Gets Searched
+
+The backend searches across multiple fields:
+- **Title** - Primary media title
+- **Description** - Media description text
+- **Tags** - Comma-separated tags
+- **Filename** - Original file name
+
+### Search Reset
+
+When you search, the system (`front/src/components/file-grid/file-grid.component.ts:131-136`):
+
+1. Resets to **page 1**
+2. Clears the current **file list**
+3. Resets the **"has more"** pagination flag
+4. Loads fresh results
+
+```typescript
+private resetAndSearch() {
+  this.currentPage = 1;
+  this.files = [];
+  this.hasMore = true;
+  this.loadFiles(true);
+}
+```
+
+## Content Type Filter
+
+Filter media by content type using the dropdown menu.
+
+### How to Filter
+
+1. Click the **content type dropdown** (next to search)
+2. Select a content type from the list:
+   - **"Todos los tipos"** - Show all media (default)
+   - **Cortometraje** - Short films
+   - **Documental** - Documentaries
+   - **Entrevista** - Interviews
+   - *(Other types as configured in your system)*
+
+### Filter Implementation
+
+The filter is bound to `selectedType` (`front/src/app/index/index.ts:32`):
+
+```html
+<select class="select" 
+        [(ngModel)]="selectedType" 
+        (change)="onTypeChange()">
+  <option value="0" selected>Todos los tipos</option>
+  <option *ngFor="let type of types" [value]="type.id">
+    {{type.name}}
+  </option>
+</select>
+```
+
+### Content Types Source
+
+Content types are loaded from the `media_types` database table via `/api/media-type` (`front/src/services/file.service.ts:68-73`).
+
+<Note>
+Only administrators can add new content types. Contact your admin if you need a new category.
+</Note>
+
+## Sorting Options
+
+Control the order of search results with the sort dropdown.
+
+### Available Sort Options
+
+1. **Más Reciente** - Newest files first (default)
+2. **Más Antiguo** - Oldest files first
+3. **Nombre (A-Z)** - Alphabetical by title (ascending)
+4. **Nombre (Z-A)** - Alphabetical by title (descending)
+
+### Sort Interface
+
+The sort selector is in the second row of the search panel (`front/src/app/index/page.html:129-136`):
+
+```html
+<select class="select" 
+        [(ngModel)]="selectedSort" 
+        (ngModelChange)="onSortChange()">
+  <option value="masReciente">Más Reciente</option>
+  <option value="masAntiguo">Más Antiguo</option>
+  <option value="nombreAZ">Nombre (A-Z)</option>
+  <option value="nombreZA">Nombre (Z-A)</option>
+</select>
+```
+
+### Sort Behavior
+
+Changing the sort order:
+1. Triggers `onSortChange()` (`front/src/app/index/index.ts:113-115`)
+2. Forces a change detection update
+3. Reloads the file grid with the new sort order
+
+## Pagination
+
+The system uses **infinite scroll pagination** to load results progressively.
+
+### How Pagination Works
+
+- **Initial load**: 20 files (`front/src/components/file-grid/file-grid.component.ts:74`)
+- **Page size**: 20 files per page
+- **Auto-load**: More files load as you scroll down
+- **Sentinel element**: A hidden element triggers loading when visible
+
+### Infinite Scroll Implementation
+
+```typescript
+// Setup intersection observer (lines 187-202)
+this.observer = new IntersectionObserver((entries) => {
+  const first = entries[0];
+  
+  if (first.isIntersecting && 
+      this.hasMore && 
+      !this.isLoadingMore && 
+      !this.isLoading) {
+    this.currentPage++;
+    this.loadFiles(false);
+  }
+}, { 
+  threshold: 0.1, 
+  rootMargin: '650px'  // Start loading 650px before reaching bottom
+});
+```
+
+<Info>
+The **650px root margin** means new files start loading before you reach the bottom of the page, creating a seamless browsing experience.
+</Info>
+
+### Pagination States
+
+The grid displays different states:
+
+1. **Loading initial results** - Shows a loading spinner
+2. **Loading more** - Shows "Cargando más archivos..." at the bottom
+3. **No more results** - Shows "No hay más archivos para mostrar"
+4. **Empty state** - Shows "No hay archivos" with upload prompt
+
+## API Request
+
+Search, filter, and sort parameters are sent to `/api/files/paginated` (`front/src/services/file.service.ts:43-66`):
+
+```typescript
+getMediaPaginated(
+  page: number,
+  limit: number,
+  search: string = '',
+  order: string,
+  selectedType: number
+): Observable<PaginatedResponse> {
+  
+  let params = new HttpParams()
+    .set('page', page.toString())
+    .set('limit', limit.toString());
+  
+  if (search) params = params.set('search', search);
+  if (order) params = params.set('order', order);
+  if (selectedType != 0) params = params.set('type', selectedType);
+  
+  return this.http.get<PaginatedResponse>(
+    `${this.API}/files/paginated`,
+    { headers: this.getHeaders(), params }
+  );
+}
+```
+
+### Request Parameters
+
+- `page` - Current page number (starts at 1)
+- `limit` - Results per page (always 20)
+- `search` - Search query string (optional)
+- `order` - Sort order (masReciente, masAntiguo, nombreAZ, nombreZA)
+- `type` - Content type ID (0 = all types)
+
+## Response Format
+
+The API returns a paginated response (`front/src/app/models/file.model.ts`):
+
+```typescript
+interface PaginatedResponse {
+  success: boolean;
+  data: MediaItem[];        // Array of media files
+  pagination: {
+    page: number;           // Current page
+    pages: number;          // Total pages
+    total: number;          // Total files
+  };
+}
+```
+
+### Response Handling
+
+```typescript
+// Process paginated response (lines 162-179)
+if (response.success) {
+  if (isNewSearch) {
+    this.files = response.data;  // Replace existing files
+  } else {
+    this.files = [...this.files, ...response.data];  // Append to existing
+  }
+  
+  this.totalPages = response.pagination.pages;
+  this.hasMore = this.currentPage < this.totalPages;
+}
+```
+
+## Empty States
+
+### No Results Found
+
+When no files match your search/filter (`front/src/components/file-grid/file-grid.component.ts:19-32`):
+
+```html
+<div *ngIf="files.length === 0 && !isLoading" class="empty-state">
+  <svg><!-- File icon --></svg>
+  <h3>No hay archivos</h3>
+  <p>Comienza subiendo tu primer contenido multimedia</p>
+  <button *ngIf="canUploadContent">Subir Contenido</button>
+</div>
+```
+
+### End of Results
+
+When all pages are loaded:
+
+```html
+<div *ngIf="!hasMore && files.length > 0" class="end-message">
+  No hay más archivos para mostrar
+</div>
+```
+
+## Performance Optimizations
+
+### 1. Debounced Search
+- Waits **500ms** after typing stops
+- Prevents excessive API calls
+- Uses RxJS `debounceTime` operator
+
+### 2. Distinct Search Terms
+- Only searches if the term actually changed
+- Uses RxJS `distinctUntilChanged` operator
+
+### 3. Lazy Loading
+- Loads only **20 files** at a time
+- Additional files load on scroll
+- Reduces initial load time
+
+### 4. Intersection Observer
+- Native browser API for scroll detection
+- More efficient than scroll event listeners
+- Starts loading **650px** before reaching bottom
+
+## Combining Filters
+
+You can combine search, content type filter, and sort order:
+
+**Example**: Search for "2023" + Filter by "Documental" + Sort by "Nombre (A-Z)"
+
+All filters are applied simultaneously in the API request:
+
+```
+GET /api/files/paginated?
+  page=1
+  &limit=20
+  &search=2023
+  &type=2
+  &order=nombreAZ
+```
+
+## Troubleshooting
+
+### Search Not Working
+
+- **Wait 500ms** after typing - search is debounced
+- Check your internet connection
+- Verify you're logged in (expired session)
+- Clear the search field and try again
+
+### No Results Found
+
+- Try a **broader search term**
+- Remove the **content type filter** (select "Todos los tipos")
+- Check if any files exist in the system
+- Verify you have permission to view content
+
+### Infinite Scroll Not Loading
+
+- **Scroll closer to the bottom** of the page
+- Check if "No hay más archivos" appears (end of results)
+- Verify the loading spinner isn't stuck
+- Refresh the page if the intersection observer fails
+
+### Performance Issues
+
+- Reduce the search term length for faster results
+- Use content type filters to narrow results
+- Check network speed if loading is slow
+- Contact admin if the database is too large
+
+## Best Practices
+
+- **Use specific search terms** - "documental 2023" is better than "video"
+- **Filter by content type first** - Narrows results before searching
+- **Use sort options** - Find newest or alphabetically organized content
+- **Let scroll load naturally** - Don't rapidly scroll to the bottom
+- **Clear filters between searches** - Reset to "Todos los tipos" for fresh searches

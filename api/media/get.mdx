@@ -1,0 +1,216 @@
+---
+title: "Get Media Item"
+api: "GET /api/files/:id"
+description: "Retrieve detailed information about a specific media item"
+---
+
+## Overview
+
+This endpoint retrieves complete details for a single media item, including all metadata, associated authors with their roles, media type, and storage location information.
+
+## Authentication
+
+Requires JWT token via `Authorization: Bearer <token>` header.
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the media item to retrieve
+</ParamField>
+
+## SQL Query
+
+```sql
+SELECT 
+    m.*,
+    ct.name AS media_type,
+    ml.path AS location_path,
+    GROUP_CONCAT(DISTINCT a.id_user) AS author_ids,
+    GROUP_CONCAT(DISTINCT a.nombre) AS author_names,
+    GROUP_CONCAT(DISTINCT a.role) AS author_roles
+FROM media_items m
+LEFT JOIN media_types ct ON m.media_type_id = ct.id
+LEFT JOIN media_locations ml ON m.media_location_id = ml.id
+LEFT JOIN media_author ma ON m.id = ma.media_id
+LEFT JOIN users a ON ma.user_id = a.id_user
+WHERE m.id = ?
+GROUP BY m.id
+```
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates successful retrieval
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Complete media item information
+  
+  <ResponseField name="data.id" type="integer">
+    Unique identifier
+  </ResponseField>
+  
+  <ResponseField name="data.title" type="string">
+    Title of the media
+  </ResponseField>
+  
+  <ResponseField name="data.description" type="string">
+    Full description
+  </ResponseField>
+  
+  <ResponseField name="data.publication_year" type="integer">
+    Year of publication
+  </ResponseField>
+  
+  <ResponseField name="data.media_path" type="string">
+    Full file system path to the media file
+  </ResponseField>
+  
+  <ResponseField name="data.filename" type="string">
+    Name of the file (with timestamp prefix)
+  </ResponseField>
+  
+  <ResponseField name="data.media_type_id" type="integer">
+    ID of the media type
+  </ResponseField>
+  
+  <ResponseField name="data.media_location_id" type="integer">
+    ID of the storage location
+  </ResponseField>
+  
+  <ResponseField name="data.tags" type="string">
+    Comma-separated tags
+  </ResponseField>
+  
+  <ResponseField name="data.date_added" type="datetime">
+    When the media was uploaded
+  </ResponseField>
+  
+  <ResponseField name="data.date_updated" type="datetime">
+    Last update timestamp
+  </ResponseField>
+  
+  <ResponseField name="data.media_type" type="string">
+    Name of the media type category
+  </ResponseField>
+  
+  <ResponseField name="data.location_path" type="string">
+    Base storage location path
+  </ResponseField>
+  
+  <ResponseField name="data.authors" type="array">
+    Array of author objects with detailed information
+    
+    <ResponseField name="data.authors[].id" type="integer">
+      User ID of the author
+    </ResponseField>
+    
+    <ResponseField name="data.authors[].name" type="string">
+      Display name of the author
+    </ResponseField>
+    
+    <ResponseField name="data.authors[].role" type="string">
+      Role of the author (admin, moderator, viewer)
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET https://api.example.com/api/files/42 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "title": "Interview with Mayor",
+    "description": "Annual interview discussing city developments and future plans",
+    "publication_year": 2026,
+    "media_path": "/var/media/1709989200000_interview.mp4",
+    "filename": "1709989200000_interview.mp4",
+    "media_type_id": 1,
+    "media_location_id": 1,
+    "tags": "interview,politics,2026,city-hall",
+    "date_added": "2026-03-09T10:30:00.000Z",
+    "date_updated": "2026-03-09T10:30:00.000Z",
+    "media_type": "Video",
+    "location_path": "/var/media",
+    "authors": [
+      {
+        "id": 1,
+        "name": "Juan García",
+        "role": "admin"
+      },
+      {
+        "id": 3,
+        "name": "María López",
+        "role": "moderator"
+      }
+    ]
+  }
+}
+```
+
+## Error Responses
+
+### 404 Not Found
+```json
+{
+  "error": "Archivo no encontrado"
+}
+```
+Returned when the specified media item ID does not exist.
+
+### 401 Unauthorized
+```json
+{
+  "error": "Token requerido"
+}
+```
+Returned when no authentication token is provided.
+
+### 403 Forbidden
+```json
+{
+  "error": "Token inválido"
+}
+```
+Returned when the provided token is invalid or expired.
+
+### 500 Internal Server Error
+```json
+{
+  "success": false,
+  "error": "Database connection error"
+}
+```
+Returned when a server-side error occurs.
+
+## Author Processing
+
+The endpoint performs special processing for author data:
+
+1. **Data Aggregation**: Uses `GROUP_CONCAT` to collect author IDs, names, and roles
+2. **String Splitting**: Splits comma-separated values into arrays
+3. **Object Construction**: Builds structured author objects with id, name, and role
+4. **Field Cleanup**: Removes raw concatenated fields from the response
+
+## Use Cases
+
+- **Detail View**: Display full information on a media detail page
+- **Edit Form**: Pre-populate form fields when editing media
+- **Metadata Extraction**: Extract information for reports or analytics
+- **Verification**: Confirm media item details before operations
+
+## Implementation Notes
+
+- All fields from the `media_items` table are included via `m.*`
+- The `GROUP BY m.id` ensures proper aggregation with LEFT JOINs
+- Author roles are fetched from the `users` table, not the junction table
+- Empty author arrays are returned for media items with no associated authors

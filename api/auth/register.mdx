@@ -1,0 +1,144 @@
+---
+title: 'Register'
+api: 'POST /api/register'
+description: 'Create a new user account and receive a JWT token'
+---
+
+Registers a new user with username and password, hashes the password using bcrypt (10 rounds), assigns the default 'viewer' role, and returns a JWT token valid for 7 days.
+
+## Request Body
+
+<ParamField body="username" type="string" required>
+  The desired username for the new account. Must be unique.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The password for the new account. Will be hashed using bcrypt with 10 salt rounds.
+</ParamField>
+
+## Response
+
+<ResponseField name="id_user" type="number">
+  The unique identifier assigned to the newly created user
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The username of the newly registered user
+</ResponseField>
+
+<ResponseField name="rol" type="string">
+  The user's role (always 'viewer' for new registrations)
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  JWT token valid for 7 days. Use this token in the Authorization header for authenticated requests.
+</ResponseField>
+
+<ResponseField name="success" type="boolean">
+  Indicates successful registration (always true in successful responses)
+</ResponseField>
+
+## Example Request
+
+```bash cURL
+curl -X POST http://localhost:3000/api/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser",
+    "password": "securepassword123"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "id_user": 5,
+  "nombre": "newuser",
+  "rol": "viewer",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "success": true
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### 401 Unauthorized
+
+Returned when required credentials are missing:
+
+```json
+{
+  "error": "Necesidad de credenciales"
+}
+```
+
+### 409 Conflict
+
+Returned when the username already exists:
+
+```json
+{
+  "error": "El usuario ya existe"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when a database or server error occurs:
+
+```json
+{
+  "error": "Database connection failed"
+}
+```
+
+## Implementation Details
+
+### Password Hashing
+
+Passwords are hashed using bcrypt with 10 salt rounds before storage:
+
+```javascript
+const hashedPassword = await bcrypt.hash(data.password, 10);
+```
+
+### User Creation
+
+New users are inserted into the database with the 'viewer' role:
+
+```javascript
+INSERT INTO users (nombre, contrasena, rol) VALUES (?, ?, 'viewer')
+```
+
+### JWT Token Generation
+
+Tokens are signed with the SECRET_KEY environment variable and expire after 7 days:
+
+```javascript
+const token = jwt.sign(
+  { id_user: user.id_user, nombre: user.nombre, rol: user.rol },
+  secret,
+  { expiresIn: "7d" }
+);
+```
+
+### Automatic Login
+
+Successful registration automatically creates a session and returns a token:
+
+```javascript
+INSERT INTO sessions (id_user, key_session) VALUES (?, ?)
+```
+
+<Note>
+  All new users are assigned the 'viewer' role by default. Only administrators can create users with other roles using the `/api/users` endpoint.
+</Note>
+
+<Warning>
+  Choose a strong password with a mix of uppercase, lowercase, numbers, and special characters. The password will be hashed using bcrypt before storage.
+</Warning>

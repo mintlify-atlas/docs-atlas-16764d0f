@@ -1,0 +1,421 @@
+---
+title: Environment Variables
+description: Complete reference of all environment variables used in Televisión Écija Media Manager
+---
+
+## Overview
+
+Televisión Écija Media Manager uses environment variables to configure database connections, authentication, file storage, and other runtime settings.
+
+## Configuration Methods
+
+### Docker Compose
+
+Environment variables are defined in `docker-compose.yml` under each service's `environment` section.
+
+### .env Files
+
+The API service supports `.env` files loaded via `dotenv` package. Place a `.env` file in the `api/` directory for local development.
+
+## Database Service Variables
+
+Configured in the `database` service section:
+
+### MYSQL_ROOT_PASSWORD
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `root`
+- **Description**: MySQL root user password
+
+```yaml
+MYSQL_ROOT_PASSWORD: root
+```
+
+<Warning>
+Change the default password in production environments. The default value `root` is insecure.
+</Warning>
+
+### MYSQL_DATABASE
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `administradorMultimedia`
+- **Description**: Name of the database to create on initialization
+
+```yaml
+MYSQL_DATABASE: administradorMultimedia
+```
+
+### MYSQL_USER
+
+- **Type**: String
+- **Required**: No
+- **Default**: `user`
+- **Description**: Additional MySQL user to create (besides root)
+
+```yaml
+MYSQL_USER: user
+```
+
+### MYSQL_PASSWORD
+
+- **Type**: String
+- **Required**: No (if MYSQL_USER is set)
+- **Default**: `root`
+- **Description**: Password for the additional MySQL user
+
+```yaml
+MYSQL_PASSWORD: root
+```
+
+<Warning>
+Change the default password in production. Never commit credentials to version control.
+</Warning>
+
+## API Service Variables
+
+Configured in the `api` service section:
+
+### NODE_ENV
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `production`
+- **Values**: `development`, `production`
+- **Description**: Node.js environment mode
+
+```yaml
+NODE_ENV: production
+```
+
+**Effects:**
+- Enables/disables verbose logging
+- Affects error message detail level
+- Controls optimization settings
+
+### PORT
+
+- **Type**: Number
+- **Required**: Yes
+- **Default**: `3000`
+- **Description**: Port on which the API server listens
+
+```yaml
+PORT: 3000
+```
+
+**Referenced in code:**
+```javascript
+const port = 3000
+app.listen(port, () => {
+    console.log(`CMS API running on port ${port}`);
+});
+```
+
+### HOST
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `database`
+- **Description**: MySQL database hostname (Docker service name)
+
+```yaml
+HOST: database
+```
+
+**Usage:** Used to establish MySQL connection:
+```javascript
+const { HOST: host } = process.env;
+const connection = mysql.createPool({
+    host,
+    // ...
+});
+```
+
+### USER
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `root`
+- **Description**: MySQL database username
+
+```yaml
+USER: root
+```
+
+### PASSWORD
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `root`
+- **Description**: MySQL database password
+
+```yaml
+PASSWORD: root
+```
+
+<Warning>
+**Security Critical**: This password must match the database service configuration. Use strong passwords in production.
+</Warning>
+
+### DATABASE
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `administradorMultimedia`
+- **Description**: MySQL database name to connect to
+
+```yaml
+DATABASE: administradorMultimedia
+```
+
+**Must match** the `MYSQL_DATABASE` value in the database service.
+
+### SECRET_KEY
+
+- **Type**: String
+- **Required**: Yes
+- **Default**: `claveSecretaNoMandarANadie`
+- **Description**: JWT token signing secret
+
+```yaml
+SECRET_KEY: claveSecretaNoMandarANadie
+```
+
+**Used for:**
+- Signing JWT authentication tokens
+- Validating token authenticity
+- Session security
+
+**Code reference:**
+```javascript
+const { SECRET_KEY: secret } = process.env;
+
+const token = jwt.sign(
+    { id_user: user.id_user, nombre: user.nombre, rol: user.rol },
+    secret,
+    { expiresIn: "7d" }
+);
+
+jwt.verify(token, secret, (err, decoded) => {
+    if (err) return res.status(403).json({ error: "Token inválido" });
+    req.user = decoded;
+    next();
+});
+```
+
+<Warning>
+**Critical Security Variable**: 
+- Must be a long, random, unguessable string
+- Never commit to version control
+- Change immediately in production
+- If compromised, all JWT tokens become insecure
+
+Generate a secure key:
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+</Warning>
+
+### MEDIA_PATH
+
+- **Type**: String (Path)
+- **Required**: Yes
+- **Default**: `/usr/src/app/uploads`
+- **Description**: Base directory path for storing uploaded media files
+
+```yaml
+MEDIA_PATH: /usr/src/app/uploads
+```
+
+**Usage in code:**
+```javascript
+const { MEDIA_PATH: mediaPath } = process.env;
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const basePath = mediaPath || path.join(__dirname, "media");
+        const dir = path.join(basePath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    // ...
+});
+```
+
+**Important:**
+- Must be writable by the `nodejs` user (UID 1001)
+- Mounted as Docker volume `uploads_data`
+- Used for all file uploads including videos, images, documents
+
+## Frontend Service Variables
+
+Configured as build arguments in the `frontend` Dockerfile:
+
+### API_URL
+
+- **Type**: String (URL)
+- **Required**: Yes
+- **Default**: `https://apiecijacomarca.rud1.es/api`
+- **Description**: Backend API base URL
+
+**Set during build:**
+```dockerfile
+ARG API_URL=https://apiecijacomarca.rud1.es/api
+ENV API_URL=$API_URL
+```
+
+**To customize:**
+```bash
+docker-compose build --build-arg API_URL=https://your-domain.com/api frontend
+```
+
+## Connection Pool Configuration
+
+Configured in `api/main.js` (hardcoded):
+
+```javascript
+const connection = mysql.createPool({
+    host,
+    user,
+    password,
+    database,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+```
+
+**Settings:**
+- `connectionLimit: 10` - Maximum 10 concurrent database connections
+- `queueLimit: 0` - Unlimited queue for waiting requests
+- `waitForConnections: true` - Queue requests when pool is full
+
+## CORS Configuration
+
+Configured in `api/main.js` (hardcoded):
+
+```javascript
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'X-Requested-With', 'Accept'],
+    credentials: true,
+    optionsSuccessStatus: 200
+}));
+```
+
+<Warning>
+`origin: '*'` allows requests from any domain. In production, restrict this to your specific frontend domain:
+
+```javascript
+origin: 'https://yourdomain.com'
+```
+</Warning>
+
+## Environment Variable Template
+
+Create a `.env.example` file for documentation:
+
+```bash
+# Database Configuration
+MYSQL_ROOT_PASSWORD=your_secure_root_password
+MYSQL_DATABASE=administradorMultimedia
+MYSQL_USER=user
+MYSQL_PASSWORD=your_secure_user_password
+
+# API Configuration
+NODE_ENV=production
+PORT=3000
+HOST=database
+USER=root
+PASSWORD=your_secure_root_password
+DATABASE=administradorMultimedia
+SECRET_KEY=your_long_random_secret_key_at_least_64_characters
+MEDIA_PATH=/usr/src/app/uploads
+
+# Frontend Configuration (build-time)
+API_URL=https://your-domain.com/api
+```
+
+## Security Best Practices
+
+### Production Checklist
+
+<Warning>
+Before deploying to production:
+
+1. **Change all default passwords**
+   - `MYSQL_ROOT_PASSWORD`
+   - `MYSQL_PASSWORD`
+   - `PASSWORD`
+
+2. **Generate secure SECRET_KEY**
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+   ```
+
+3. **Restrict CORS origins**
+   - Change `origin: '*'` to specific domain
+
+4. **Use environment-specific values**
+   - Different secrets for dev/staging/production
+
+5. **Never commit secrets to Git**
+   - Add `.env` to `.gitignore`
+   - Use secret management tools
+
+6. **Limit database access**
+   - Remove external port mapping if not needed
+   - Use firewall rules
+</Warning>
+
+## Validation
+
+Verify environment variables are loaded correctly:
+
+```bash
+# Check API container environment
+docker exec file_manager_api env | grep -E "NODE_ENV|PORT|HOST|DATABASE|MEDIA_PATH"
+
+# Check database container environment
+docker exec file_manager_mysql env | grep -E "MYSQL_"
+```
+
+## Troubleshooting
+
+### API cannot connect to database
+
+**Symptom**: Connection refused errors
+
+**Check:**
+1. `HOST` matches database service name (`database`)
+2. `USER` and `PASSWORD` match database credentials
+3. `DATABASE` name matches `MYSQL_DATABASE`
+4. Database service is running: `docker-compose ps database`
+
+### JWT token validation fails
+
+**Symptom**: "Token inválido" errors
+
+**Check:**
+1. `SECRET_KEY` is set and consistent
+2. Key hasn't changed since token was issued
+3. Token hasn't expired (7 day expiration)
+
+### File uploads fail
+
+**Symptom**: Permission denied or path errors
+
+**Check:**
+1. `MEDIA_PATH` is set correctly
+2. Directory exists and is writable
+3. Volume is properly mounted
+4. User `nodejs` (UID 1001) has write permissions
+
+## Next Steps
+
+- Review [Docker Compose Setup](/deployment/docker)
+- Configure [Database Setup](/deployment/database-setup)
+- Set up [Backup & Restore](/deployment/backup-restore)

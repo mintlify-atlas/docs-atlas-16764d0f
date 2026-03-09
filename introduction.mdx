@@ -1,0 +1,198 @@
+---
+title: Introduction
+description: Learn about Televisión Écija Media Manager, the comprehensive solution for managing distributed multimedia content across your broadcast organization.
+---
+
+## What is Televisión Écija Media Manager?
+
+Televisión Écija Media Manager is a specialized content management system designed for broadcast organizations managing distributed multimedia archives. Built for Televisión Écija, this platform centralizes videos, images, and multimedia files that were previously scattered across different computers, hard drives, and storage locations.
+
+<CardGroup cols={2}>
+  <Card title="Centralized Search" icon="magnifying-glass">
+    Quickly find any media file across all distributed storage locations with advanced search and filtering capabilities.
+  </Card>
+  <Card title="Role-Based Access" icon="shield">
+    Three-tier permission system (Admin, Moderator, Viewer) ensures secure access control for your team.
+  </Card>
+  <Card title="Automated Thumbnails" icon="image">
+    Automatically generate video thumbnails using FFmpeg for quick visual identification of content.
+  </Card>
+  <Card title="Production Ready" icon="docker">
+    Fully containerized with Docker Compose for easy deployment and scalability.
+  </Card>
+</CardGroup>
+
+## Who is This For?
+
+### Broadcast Organizations
+Perfect for television stations and media companies that need to organize and retrieve content from multiple storage locations. The system was specifically built for the real-world needs of a working broadcast facility.
+
+### Content Production Teams
+Production teams can:
+- Upload and categorize new recordings
+- Tag content with metadata like publication year, descriptions, and custom tags
+- Track authorship and contributor information
+- Filter and search through historical archives
+
+### Media Archivists
+Archivists benefit from:
+- Centralized catalog of distributed storage locations
+- Advanced search across titles, descriptions, and tags
+- Statistics on storage usage and content distribution
+- Year-based organization of historical content
+
+<Note>
+  **Language Note**: The system is designed with Spanish-language interfaces and metadata to serve Spanish-speaking broadcast organizations.
+</Note>
+
+## Key Capabilities
+
+### Media Management
+The platform handles multiple media types with specialized processing:
+
+```typescript
+// From: front/src/services/file.service.ts:158-177
+getType(filename: string): 'video' | 'image' | 'audio' | 'document' | 'other' {
+    const ext = filename.split('.').pop()?.toLowerCase();
+
+    if (!ext) return 'other';
+
+    const videoExt = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv']);
+    const imageExt = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
+    const audioExt = new Set(['mp3', 'wav', 'ogg', 'flac', 'm4a']);
+    const documentExt = new Set([
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+        'txt', 'csv', 'md', 'rtf'
+    ]);
+
+    if (videoExt.has(ext)) return 'video';
+    if (imageExt.has(ext)) return 'image';
+    if (audioExt.has(ext)) return 'audio';
+    if (documentExt.has(ext)) return 'document';
+
+    return 'other';
+}
+```
+
+### Distributed Storage Support
+Unlike traditional media managers that assume centralized storage, this system embraces distributed architectures:
+
+- **Multiple Storage Locations**: Register different physical disks, network shares, or storage paths
+- **Location Tracking**: Every media item tracks both its specific path and its storage location
+- **Flexible Organization**: Organize by year, program, or any custom folder structure
+
+```sql
+-- From: db/init.sql:27-30
+CREATE TABLE media_locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    path TEXT
+);
+```
+
+### Authentication & Permissions
+
+Secure JWT-based authentication with three role levels:
+
+<Accordion title="Admin Role">
+  **Full System Control**
+  - Upload, edit, and delete content
+  - Manage users and permissions
+  - Create and manage storage locations
+  - Access all administrative dashboards
+  
+  ```javascript
+  // From: api/main.js:516-527
+  admin: {
+      canUpload: true,
+      canDelete: true,
+      canEdit: true,
+      canDownload: true,
+      canManageUsers: true,
+      canViewAllContent: true,
+      role: 'admin',
+      level: 3
+  }
+  ```
+</Accordion>
+
+<Accordion title="Moderator Role">
+  **Content Management**
+  - Upload and edit content
+  - Cannot delete files or manage users
+  - Download and organize media
+  - View all content
+  
+  ```javascript
+  // From: api/main.js:528-537
+  moderator: {
+      canUpload: true,
+      canDelete: false,
+      canEdit: true,
+      canDownload: true,
+      canManageUsers: false,
+      canViewAllContent: true,
+      role: 'moderator',
+      level: 2
+  }
+  ```
+</Accordion>
+
+<Accordion title="Viewer Role">
+  **Read-Only Access**
+  - Browse and search content
+  - View metadata and details
+  - No upload, edit, or delete permissions
+  - Cannot manage system settings
+  
+  ```javascript
+  // From: api/main.js:538-547
+  viewer: {
+      canUpload: false,
+      canDelete: false,
+      canEdit: false,
+      canDownload: false,
+      canManageUsers: false,
+      canViewAllContent: true,
+      role: 'viewer',
+      level: 1
+  }
+  ```
+</Accordion>
+
+## Real-World Data Scale
+
+The system is battle-tested with real production data:
+
+<Info>
+  The initial database includes **10.8 MB of CSV data** (db/bd.csv) representing actual broadcast content, demonstrating the system's capability to handle substantial media catalogs from day one.
+</Info>
+
+## Getting Started
+
+Deployment is streamlined with Docker Compose:
+
+```bash
+# From: docker-compose.yml services
+docker-compose up -d
+
+# Services started:
+# - MySQL database (port 3306)
+# - Express API (port 3000)
+# - Angular frontend (port 80)
+# - Automatic database backup service
+```
+
+<Warning>
+  **Default Credentials**: The system includes default admin/viewer accounts for initial setup. Change these credentials immediately in production environments.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Explore Features" icon="star" href="/features">
+    Discover all 8 key features including search, filtering, and statistics
+  </Card>
+  <Card title="Architecture" icon="layer-group" href="/architecture">
+    Learn about the three-tier architecture and technology stack
+  </Card>
+</CardGroup>

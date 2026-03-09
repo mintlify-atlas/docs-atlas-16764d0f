@@ -1,0 +1,434 @@
+---
+title: Media Type Categories
+description: Create and manage content type classifications for media organization
+---
+
+<Info>
+  **Moderator/Admin Feature**
+  
+  Creating media types requires `moderator` or `admin` role privileges. All users can view existing media types.
+</Info>
+
+Media types provide a classification system for organizing content in the Televisión Écija Media Manager. Examples include Documentaries, News Reports, Interviews, Music Videos, and more.
+
+## Understanding Media Types
+
+Media types (also called content types) categorize media items into logical groups. This classification:
+- Helps users filter and search content
+- Organizes the media catalog
+- Provides statistical insights by category
+- Enables content-specific workflows
+
+### Database Schema
+
+```sql
+CREATE TABLE media_types (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(512) UNIQUE
+);
+```
+
+Media items reference their type:
+
+```sql
+CREATE TABLE media_items (
+    ...
+    media_type_id INT,  /* -> id:1 -> "Documental" */
+    ...
+    FOREIGN KEY (media_type_id) REFERENCES media_types(id) ON DELETE SET NULL
+);
+```
+
+<Note>
+  **Soft Deletion**: When a media type is deleted, associated media items have their `media_type_id` set to `NULL` rather than being deleted (due to `ON DELETE SET NULL`).
+</Note>
+
+## Retrieving Media Types
+
+All authenticated users can fetch the list of media types:
+
+```javascript
+GET /api/media-type
+Headers: Authorization: Bearer <token>
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Documental" },
+    { "id": 2, "name": "Telediario" },
+    { "id": 3, "name": "Entrevista" },
+    { "id": 4, "name": "Videoclip" }
+  ]
+}
+```
+
+Results are sorted alphabetically by name (see `/home/daytona/workspace/source/api/main.js:685-704`).
+
+## Creating a Media Type
+
+<Steps>
+  <Step title="Prepare the API Request">
+    Media types are created via API call. There is currently no dedicated UI in the dashboard for this operation.
+    
+    You'll need:
+    - An authentication token (admin or moderator role)
+    - The name of the new media type
+  </Step>
+  
+  <Step title="Send POST Request">
+    Submit the creation request:
+    
+    ```javascript
+    POST /api/media-type
+    Headers: Authorization: Bearer <token>
+    Body: {
+      "name": "Cortometraje"
+    }
+    ```
+  </Step>
+  
+  <Step title="Verify Creation">
+    The API returns the new type's ID:
+    
+    ```json
+    {
+      "success": true,
+      "id": 5
+    }
+    ```
+    
+    The media type is immediately available for use when uploading or editing content.
+  </Step>
+</Steps>
+
+### API Endpoint Details
+
+**Endpoint**: `POST /api/media-type`
+
+**Required Headers**:
+- `Authorization: Bearer <token>`
+- `Content-Type: application/json`
+
+**Request Body**:
+```json
+{
+  "name": "string (required)"
+}
+```
+
+**Authorization**: Admin or Moderator role required
+
+**Implementation** (see `/home/daytona/workspace/source/api/main.js:706-727`):
+
+```javascript
+app.post('/api/media-type', verifyToken, async (req, res) => {
+    if (req.user.rol !== "admin" && req.user.rol !== "moderator")
+        return res.status(403).json({ error: "No tienes permisos" });
+
+    const { name } = req.body;
+
+    try {
+        const [result] = await connection.promise().query(
+            "INSERT INTO media_types (name) VALUES (?)",
+            [name]
+        );
+        res.json({
+            success: true,
+            id: result.insertId
+        });
+    } catch (err) {
+        res.status(500).json({
+            success: false,
+            error: err.message
+        });
+    }
+});
+```
+
+## Using Media Types
+
+### In Media Upload
+
+When uploading content, specify the media type ID:
+
+```javascript
+POST /api/upload-content
+Headers: 
+  Authorization: Bearer <token>
+  Content-Type: multipart/form-data
+
+Body (FormData):
+  file: <binary>
+  title: "Mi Documental"
+  description: "Descripción del contenido"
+  media_type_id: 1
+  media_location_id: 2
+  publication_year: 2024
+  tags: "naturaleza,españa,educativo"
+  author_ids: [1, 3]
+```
+
+See `/home/daytona/workspace/source/api/main.js:169-257` for upload implementation.
+
+### In Media Editing
+
+Update the media type when editing an item:
+
+```javascript
+PUT /api/files/:id
+Body: {
+  "media_type_id": 3,
+  "title": "Updated Title",
+  ...
+}
+```
+
+### In Filtering and Search
+
+Filter media items by type:
+
+```javascript
+GET /api/files?media_type=Documental
+```
+
+Or in paginated search:
+
+```javascript
+GET /api/files/paginated?page=1&limit=10&type=3
+```
+
+Where `type` is the media type ID (see `/home/daytona/workspace/source/api/main.js:318-387`).
+
+## Media Type in Statistics
+
+The statistics endpoint provides content breakdowns by media type:
+
+```javascript
+GET /api/stats
+Headers: Authorization: Bearer <token>
+```
+
+**Response includes**:
+```json
+{
+  "success": true,
+  "stats": {
+    "total": 150,
+    "byType": [
+      { "name": "Documental", "total": 45 },
+      { "name": "Telediario", "total": 32 },
+      { "name": "Entrevista", "total": 28 },
+      { "name": "Videoclip", "total": 25 },
+      { "name": null, "total": 20 }  // Items with no type
+    ],
+    ...
+  }
+}
+```
+
+See `/home/daytona/workspace/source/api/main.js:596-601` for the query:
+
+```sql
+SELECT ct.name, COUNT(*) as total
+FROM media_items m
+JOIN media_types ct ON m.media_type_id = ct.id
+GROUP BY ct.name
+```
+
+## Editing Media Types
+
+<Warning>
+  There is currently no API endpoint to update existing media type names. To change a type name, you must directly modify the database:
+  
+  ```sql
+  UPDATE media_types SET name = 'New Name' WHERE id = 3;
+  ```
+  
+  This is a limitation that may be addressed in future updates.
+</Warning>
+
+## Deleting Media Types
+
+<Warning>
+  There is currently no API endpoint to delete media types. To remove a type, directly execute:
+  
+  ```sql
+  DELETE FROM media_types WHERE id = 3;
+  ```
+  
+  All media items with this type will have their `media_type_id` set to `NULL` due to the `ON DELETE SET NULL` constraint.
+</Warning>
+
+<Info>
+  Consider creating update and delete endpoints if your workflow requires frequent media type management. The foundation is already in place with the POST endpoint.
+</Info>
+
+## Common Media Type Examples
+
+Here are suggested media type categories for a television station:
+
+<CardGroup cols={2}>
+  <Card title="News Content" icon="newspaper">
+    - Telediario (News Broadcast)
+    - Reportaje (News Report)
+    - Entrevista (Interview)
+    - Debate
+  </Card>
+  
+  <Card title="Entertainment" icon="tv">
+    - Programa (TV Show)
+    - Videoclip (Music Video)
+    - Cortometraje (Short Film)
+    - Película (Feature Film)
+  </Card>
+  
+  <Card title="Educational" icon="book">
+    - Documental (Documentary)
+    - Tutorial
+    - Conferencia (Conference)
+    - Webinar
+  </Card>
+  
+  <Card title="Marketing" icon="bullhorn">
+    - Publicidad (Advertisement)
+    - Promocional (Promo)
+    - Anuncio (Commercial)
+    - Tráiler (Trailer)
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+### Naming Conventions
+
+<Steps>
+  <Step title="Use Consistent Language">
+    Choose either Spanish or English for all type names, not a mix.
+    
+    ✅ Good: "Documental", "Telediario", "Entrevista"
+    
+    ❌ Bad: "Documentary", "Telediario", "Interview"
+  </Step>
+  
+  <Step title="Use Singular Form">
+    Media types should be singular nouns:
+    
+    ✅ Good: "Documental", "Videoclip"
+    
+    ❌ Bad: "Documentales", "Videoclips"
+  </Step>
+  
+  <Step title="Capitalize Appropriately">
+    Follow the capitalization rules of your language:
+    
+    Spanish: Only capitalize proper nouns
+    English: Capitalize each major word (Title Case)
+  </Step>
+  
+  <Step title="Avoid Overlapping Categories">
+    Each media type should be distinct:
+    
+    ✅ Good: Separate "Documental" and "Reportaje"
+    
+    ❌ Bad: "Documental" and "Documentary" (duplicates)
+  </Step>
+</Steps>
+
+### Organization Strategy
+
+1. **Start with broad categories** during initial setup
+2. **Add specific types** as your content library grows
+3. **Regularly review** unused or rarely-used types
+4. **Document** the intended use of each type for content uploaders
+
+## Querying Media by Type
+
+In the database, join on the media_types table:
+
+```sql
+SELECT 
+    m.id,
+    m.title,
+    ct.name AS media_type
+FROM media_items m
+LEFT JOIN media_types ct ON m.media_type_id = ct.id
+WHERE ct.name = 'Documental'
+ORDER BY m.date_added DESC;
+```
+
+The API automatically performs this join in the `/api/files` and `/api/files/paginated` endpoints.
+
+## Frontend Integration
+
+When building upload or edit forms, fetch media types to populate a dropdown:
+
+```javascript
+fetch('/api/media-type', {
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+})
+.then(res => res.json())
+.then(data => {
+  const select = document.getElementById('media-type-select');
+  data.data.forEach(type => {
+    const option = document.createElement('option');
+    option.value = type.id;
+    option.textContent = type.name;
+    select.appendChild(option);
+  });
+});
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="403 Forbidden When Creating Media Type">
+    Only admin and moderator roles can create media types.
+    
+    **Solution**: Verify your role with `GET /api/user/role`. Request an administrator to upgrade your account if needed.
+  </Accordion>
+  
+  <Accordion title="Duplicate Name Error">
+    Media type names must be unique (enforced by `UNIQUE` constraint).
+    
+    **Solution**: Choose a different name or use the existing type.
+  </Accordion>
+  
+  <Accordion title="Cannot Find Type in Statistics">
+    If a media type doesn't appear in statistics, it may have no associated media items.
+    
+    **Solution**: The statistics query only returns types that have at least one media item assigned. Check `GET /api/media-type` to see all types.
+  </Accordion>
+  
+  <Accordion title="Media Items Show null Type">
+    This occurs when:
+    - The media type was deleted
+    - No type was assigned during upload
+    - The foreign key constraint set the value to NULL
+    
+    **Solution**: Edit the media item and assign a valid media type.
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+- **Media Upload**: Requires media type selection (see [Uploading Files](/user-guide/uploading-files))
+- **Search and Filter**: Filter catalog by media type (see [Searching & Filtering](/user-guide/searching-filtering))
+- **Statistics**: View content distribution by type (see [Platform Statistics](/admin/statistics))
+- **Content Organization**: Use types with tags for powerful categorization
+
+## Future Enhancements
+
+Potential improvements to the media type system:
+
+- [ ] Dashboard UI for creating and managing media types
+- [ ] Update endpoint: `PUT /api/media-type/:id`
+- [ ] Delete endpoint: `DELETE /api/media-type/:id` with confirmation
+- [ ] Type descriptions and metadata fields
+- [ ] Type-specific upload templates or required fields
+- [ ] Media type icons and color coding
+- [ ] Hierarchical types (parent/child relationships)

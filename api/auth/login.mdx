@@ -1,0 +1,138 @@
+---
+title: 'Login'
+api: 'POST /api/login'
+description: 'Authenticate a user and receive a JWT token'
+---
+
+Authenticates a user with username and password credentials, validates the password using bcrypt, and returns a JWT token valid for 7 days.
+
+## Request Body
+
+<ParamField body="username" type="string" required>
+  The username of the user attempting to login
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's password (will be compared against bcrypt hash stored in database)
+</ParamField>
+
+## Response
+
+<ResponseField name="id_user" type="number">
+  The unique identifier of the authenticated user
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  The username of the authenticated user
+</ResponseField>
+
+<ResponseField name="rol" type="string">
+  The user's role (admin, moderator, or viewer)
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  JWT token valid for 7 days. Use this token in the Authorization header for authenticated requests.
+</ResponseField>
+
+<ResponseField name="success" type="boolean">
+  Indicates successful authentication (always true in successful responses)
+</ResponseField>
+
+## Example Request
+
+```bash cURL
+curl -X POST http://localhost:3000/api/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "mypassword123"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "id_user": 1,
+  "nombre": "admin",
+  "rol": "admin",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "success": true
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### 401 Unauthorized
+
+Returned when credentials are missing or invalid:
+
+```json
+{
+  "error": "Necesidad de credenciales"
+}
+```
+
+```json
+{
+  "error": "Usuario incorrecto"
+}
+```
+
+```json
+{
+  "error": "Contraseña incorrecta"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when a database or server error occurs:
+
+```json
+{
+  "error": "Database connection failed"
+}
+```
+
+## Implementation Details
+
+### Password Verification
+
+Passwords are verified using bcrypt's compare function:
+
+```javascript
+const valid = await bcrypt.compare(data.password, user.contrasena);
+```
+
+### JWT Token Generation
+
+Tokens are signed with the SECRET_KEY environment variable and expire after 7 days:
+
+```javascript
+const token = jwt.sign(
+  { id_user: user.id_user, nombre: user.nombre, rol: user.rol },
+  secret,
+  { expiresIn: "7d" }
+);
+```
+
+### Session Management
+
+Successful login creates a session record in the database:
+
+```javascript
+INSERT INTO sessions (id_user, key_session) VALUES (?, ?)
+```
+
+<Note>
+  The password field is removed from the user object before sending the response for security.
+</Note>
+
+<Warning>
+  Store the JWT token securely on the client side. Include it in the Authorization header as `Bearer <token>` for all authenticated requests.
+</Warning>

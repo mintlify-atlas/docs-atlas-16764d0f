@@ -1,0 +1,320 @@
+---
+title: "Get Video Thumbnail"
+api: "GET /api/files/:id/thumbnail"
+description: "Retrieve or generate a thumbnail image for a media item"
+---
+
+## Overview
+
+This endpoint provides thumbnail images for media items, primarily designed for video content. It automatically generates thumbnails using FFmpeg when they don't exist and caches them for subsequent requests.
+
+## Authentication
+
+**No authentication required.** This endpoint is publicly accessible.
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the media item
+</ParamField>
+
+## SQL Query
+
+```sql
+SELECT media_path, filename FROM media_items WHERE id = ?
+```
+
+## Response
+
+The response is a JPEG image file:
+
+### Response Headers
+
+<ResponseField name="Content-Type" type="string">
+  `image/jpeg`
+</ResponseField>
+
+### Content
+
+Raw JPEG image data (typically 640x360 or original video dimensions).
+
+## Thumbnail Generation Process
+
+### 1. Check for Existing Thumbnail
+
+The endpoint first checks if a pre-generated thumbnail exists at:
+```
+{media_path}_thumbnail.jpg
+```
+
+If found, it's immediately returned.
+
+### 2. Generate Thumbnail with FFmpeg
+
+If no thumbnail exists, FFmpeg is executed to generate one:
+
+```bash
+ffmpeg -i {media_path} -ss 00:00:01.000 -vframes 1 {thumbnail_path}
+```
+
+### FFmpeg Parameters
+
+<ParamField name="-i" type="string">
+  Input file path (the original media file)
+</ParamField>
+
+<ParamField name="-ss" type="string">
+  Seek to timestamp `00:00:01.000` (1 second into the video)
+</ParamField>
+
+<ParamField name="-vframes" type="integer">
+  Extract exactly 1 frame as the thumbnail
+</ParamField>
+
+<ParamField name="output" type="string">
+  Output path: `{media_path}_thumbnail.jpg`
+</ParamField>
+
+### 3. Return Generated Thumbnail
+
+Once FFmpeg completes, the new thumbnail is returned and cached for future requests.
+
+## Thumbnail Storage
+
+Thumbnails are stored alongside the original media file with the `_thumbnail.jpg` suffix:
+
+```
+Original: /var/media/1709989200000_interview.mp4
+Thumbnail: /var/media/1709989200000_interview.mp4_thumbnail.jpg
+```
+
+## Example Request
+
+```bash
+curl -X GET https://api.example.com/api/files/42/thumbnail \
+  -o thumbnail.jpg
+```
+
+## Example HTML Usage
+
+```html
+<img src="https://api.example.com/api/files/42/thumbnail" 
+     alt="Video thumbnail" 
+     width="640" 
+     height="360">
+```
+
+## Example React Usage
+
+```jsx
+function MediaCard({ mediaId, title }) {
+  return (
+    <div className="media-card">
+      <img 
+        src={`https://api.example.com/api/files/${mediaId}/thumbnail`}
+        alt={title}
+        onError={(e) => {
+          e.target.src = '/placeholder.jpg'; // Fallback image
+        }}
+      />
+      <h3>{title}</h3>
+    </div>
+  );
+}
+```
+
+## Error Responses
+
+### 404 Not Found (Media Item)
+```json
+{
+  "error": "Archivo no encontrado"
+}
+```
+Returned when the media item ID does not exist in the database.
+
+### 404 Not Found (Video File)
+```json
+{
+  "error": "Archivo de video no encontrado para generar thumbnail"
+}
+```
+Returned when the database record exists but the media file is missing from the file system.
+
+### 500 Internal Server Error (FFmpeg)
+```json
+{
+  "error": "Error generando thumbnail"
+}
+```
+Returned when FFmpeg fails to generate the thumbnail. Possible causes:
+- Corrupt video file
+- Unsupported video format
+- Video is shorter than 1 second
+- FFmpeg is not installed or not accessible
+- File system permissions issues
+
+## Performance Characteristics
+
+### First Request (Generation)
+
+- **Duration**: 1-5 seconds depending on video size and system performance
+- **CPU**: High CPU usage during FFmpeg processing
+- **I/O**: Reads source video and writes thumbnail
+- **Response**: Delayed until generation completes
+
+### Subsequent Requests (Cached)
+
+- **Duration**: Less than 100ms
+- **CPU**: Minimal
+- **I/O**: Single file read
+- **Response**: Immediate
+
+## FFmpeg Installation
+
+The endpoint uses `ffmpeg-static` package, which includes a bundled FFmpeg binary:
+
+```javascript
+const ffmpegPath = require("ffmpeg-static");
+```
+
+This ensures FFmpeg is available without requiring system-wide installation.
+
+## Supported Video Formats
+
+FFmpeg supports a wide range of video formats:
+
+- **MP4** (H.264, H.265)
+- **AVI**
+- **MOV** (QuickTime)
+- **MKV** (Matroska)
+- **WebM**
+- **FLV** (Flash Video)
+- **WMV** (Windows Media Video)
+- **MPEG** (MPEG-1, MPEG-2)
+
+## Thumbnail Quality
+
+The generated thumbnail quality depends on:
+
+1. **Source video quality**: Higher quality source = higher quality thumbnail
+2. **Frame selection**: Uses frame at 1 second mark
+3. **JPEG compression**: Default FFmpeg JPEG quality settings
+4. **Resolution**: Preserves original video resolution
+
+## Optimizing Thumbnail Generation
+
+### Pre-generation Strategy
+
+Consider generating thumbnails during upload rather than on-demand:
+
+```javascript
+// After file upload in /api/upload-content
+execFile(ffmpegPath, [
+  '-i', fullPath,
+  '-ss', '00:00:01.000',
+  '-vframes', '1',
+  fullPath + '_thumbnail.jpg'
+], (error) => {
+  if (error) console.error('Thumbnail generation failed:', error);
+});
+```
+
+Benefits:
+- No delay for first thumbnail request
+- Better user experience
+- Spread processing load over time
+
+### Custom Thumbnail Dimensions
+
+To generate thumbnails at specific dimensions:
+
+```bash
+ffmpeg -i {media_path} -ss 00:00:01.000 -vframes 1 -vf scale=640:360 {thumbnail_path}
+```
+
+### Multiple Thumbnail Sizes
+
+Generate thumbnails at different resolutions:
+
+```
+{media_path}_thumbnail_small.jpg   # 320x180
+{media_path}_thumbnail_medium.jpg  # 640x360
+{media_path}_thumbnail_large.jpg   # 1280x720
+```
+
+## Security Considerations
+
+### No Authentication
+
+<Warning>
+This endpoint is publicly accessible. Anyone can view thumbnails if they know the media ID.
+</Warning>
+
+### Path Traversal Protection
+
+The endpoint is protected because:
+- File paths come from the database
+- No user input is used in path construction
+- IDs are validated as integers
+
+### Resource Limits
+
+Consider implementing:
+
+1. **Rate limiting**: Prevent thumbnail generation DoS attacks
+2. **Queue system**: Limit concurrent FFmpeg processes
+3. **Timeout**: Kill FFmpeg processes that run too long
+4. **File size limits**: Skip thumbnail generation for very large files
+
+## Use Cases
+
+- **Video Gallery**: Display thumbnail previews in media listings
+- **Search Results**: Show visual previews of video content
+- **Sharing**: Generate preview images for social media
+- **Player UI**: Show thumbnail before video playback begins
+- **Mobile Apps**: Reduce bandwidth by loading thumbnails first
+
+## Troubleshooting
+
+### FFmpeg Not Found
+
+If `ffmpeg-static` is not installed:
+
+```bash
+npm install ffmpeg-static
+```
+
+### Permission Errors
+
+Ensure the application has write permissions to the media directory:
+
+```bash
+chmod 755 /var/media
+```
+
+### Corrupt Video Files
+
+If FFmpeg fails consistently, verify the video file:
+
+```bash
+ffmpeg -i {video_file} -f null -
+```
+
+### Wrong Frame Captured
+
+If the 1-second mark doesn't provide a good thumbnail, adjust the `-ss` parameter:
+
+```bash
+-ss 00:00:05.000  # Try 5 seconds instead
+```
+
+## Monitoring
+
+Track these metrics:
+
+- **Generation rate**: How many thumbnails are generated per hour
+- **Cache hit rate**: Percentage of requests served from cache
+- **Generation failures**: FFmpeg error frequency
+- **Average generation time**: How long FFmpeg takes
+- **Disk usage**: Total size of all thumbnails

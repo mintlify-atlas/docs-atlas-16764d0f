@@ -1,0 +1,301 @@
+---
+title: Configuration
+description: Configure environment variables, database, and storage for Televisión Écija Media Manager
+---
+
+## Environment Variables
+
+The API service uses environment variables defined in the `docker-compose.yml` file. These can be customized before deployment.
+
+### Database Configuration
+
+MySQL database connection settings:
+
+```yaml
+environment:
+  MYSQL_ROOT_PASSWORD: root
+  MYSQL_DATABASE: administradorMultimedia
+  MYSQL_USER: user
+  MYSQL_PASSWORD: root
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MYSQL_ROOT_PASSWORD` | `root` | MySQL root user password |
+| `MYSQL_DATABASE` | `administradorMultimedia` | Database name |
+| `MYSQL_USER` | `user` | Additional MySQL user |
+| `MYSQL_PASSWORD` | `root` | Password for additional user |
+
+<Warning>
+**Security Recommendation**: Change the default passwords in production environments. Update both the `database` and `api` service configurations to match.
+</Warning>
+
+### API Configuration
+
+Node.js Express API settings:
+
+```yaml
+environment:
+  NODE_ENV: production
+  PORT: 3000
+  HOST: database
+  USER: root
+  PASSWORD: root
+  DATABASE: administradorMultimedia
+  SECRET_KEY: claveSecretaNoMandarANadie
+  MEDIA_PATH: /usr/src/app/uploads
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NODE_ENV` | `production` | Node.js environment mode |
+| `PORT` | `3000` | API server port |
+| `HOST` | `database` | Database hostname (Docker service name) |
+| `USER` | `root` | Database username for API |
+| `PASSWORD` | `root` | Database password for API |
+| `DATABASE` | `administradorMultimedia` | Database name |
+| `SECRET_KEY` | `claveSecretaNoMandarANadie` | JWT token signing secret |
+| `MEDIA_PATH` | `/usr/src/app/uploads` | Path for uploaded media files |
+
+<Warning>
+**Critical**: Change `SECRET_KEY` to a strong random value in production. This key is used to sign authentication tokens. Generate a secure key:
+
+```bash
+openssl rand -hex 32
+```
+</Warning>
+
+## Database Schema
+
+The database is automatically initialized from `db/init.sql` on first startup. The schema includes:
+
+### Core Tables
+
+<AccordionGroup>
+  <Accordion title="users - User accounts and roles">
+    ```sql
+    CREATE TABLE users (
+        id_user INT AUTO_INCREMENT PRIMARY KEY,
+        nombre VARCHAR(50) UNIQUE,
+        contrasena VARCHAR(255),
+        CHECK (CHAR_LENGTH(contrasena) >= 4),
+        rol VARCHAR(30) DEFAULT "viewer",
+        CHECK (rol IN ("admin", "moderator", "viewer"))
+    );
+    ```
+
+    **Roles**:
+    - `admin`: Full access - upload, edit, delete, user management
+    - `moderator`: Upload and edit content (cannot delete or manage users)
+    - `viewer`: Read-only access (cannot upload or modify)
+  </Accordion>
+
+  <Accordion title="media_items - Media file metadata">
+    ```sql
+    CREATE TABLE media_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title TEXT,
+        description TEXT,
+        publication_year INT,
+        media_path TEXT,
+        filename TEXT,
+        media_type_id INT,
+        media_location_id INT,
+        tags TEXT,
+        date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        date_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+    ```
+
+    Stores metadata for all uploaded media files including videos, images, and documents.
+  </Accordion>
+
+  <Accordion title="media_types - Content categories">
+    ```sql
+    CREATE TABLE media_types (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(512) UNIQUE
+    );
+    ```
+
+    Examples: "Cortometraje", "Documental", "Entrevista", "Fotografía"
+  </Accordion>
+
+  <Accordion title="media_locations - Storage paths">
+    ```sql
+    CREATE TABLE media_locations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        path TEXT
+    );
+    ```
+
+    Tracks different storage locations for organizing media across disks or directories.
+  </Accordion>
+</AccordionGroup>
+
+### Default Users
+
+Two default users are created during initialization:
+
+| Username | Password | Role | Description |
+|----------|----------|------|-------------|
+| `admin` | `admin` | admin | Administrator with full access |
+| `viewer` | `viewer` | viewer | Read-only user for testing |
+
+<Warning>
+**Security**: Change these default credentials immediately after first login. Use the user management interface or API to update passwords.
+</Warning>
+
+## Storage Configuration
+
+### Media Upload Path
+
+Uploaded files are stored in the path specified by `MEDIA_PATH` environment variable:
+
+- **Default**: `/usr/src/app/uploads` (inside container)
+- **Docker Volume**: `file_manager_uploads_data` (persistent)
+
+### Adding Additional Storage Locations
+
+You can configure multiple storage paths for organizing media:
+
+<Steps>
+  <Step title="Mount additional volumes">
+    Edit `docker-compose.yml` to add more volumes:
+
+    ```yaml
+    volumes:
+      - uploads_data:/usr/src/app/uploads
+      - /mnt/archive:/usr/src/app/archive
+      - /mnt/raw:/usr/src/app/raw
+    ```
+  </Step>
+
+  <Step title="Create locations via API">
+    After deployment, use the web interface (Admin only) or API to register new locations:
+
+    ```bash
+    curl -X POST http://localhost:3000/api/locations \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"path": "/usr/src/app/archive"}'
+    ```
+  </Step>
+</Steps>
+
+## Automated Backups
+
+The `db_backup` service performs daily MySQL database backups:
+
+- **Frequency**: Every 24 hours (86400 seconds)
+- **Location**: `./db/backups/` on host machine
+- **Format**: `backup_YYYYMMDD_HHMMSS.sql`
+- **Retention**: Keeps last 7 backups, automatically deletes older ones
+
+### Manual Backup
+
+Create a manual backup:
+
+```bash
+docker-compose exec database mysqldump -u root -proot administradorMultimedia > backup_manual.sql
+```
+
+### Restore from Backup
+
+Restore a previous backup:
+
+```bash
+docker-compose exec -T database mysql -u root -proot administradorMultimedia < ./db/backups/backup_20260309_120000.sql
+```
+
+## Network Configuration
+
+All services communicate via the `file_manager_network` Docker bridge network:
+
+```yaml
+networks:
+  file_manager_network:
+    name: file_manager_network
+    driver: bridge
+```
+
+Services can reference each other by container name:
+- API connects to database via hostname `database`
+- Frontend connects to API via hostname `api`
+
+## CORS Configuration
+
+The API is configured with permissive CORS for development. For production, restrict origins in `api/main.js`:
+
+```javascript
+app.use(cors({
+    origin: 'http://your-domain.com',  // Restrict to your domain
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
+}));
+```
+
+## Production Considerations
+
+<CardGroup cols={2}>
+  <Card title="Security Hardening" icon="shield">
+    - Change all default passwords
+    - Update `SECRET_KEY` to secure random value
+    - Restrict CORS origins
+    - Use HTTPS with reverse proxy (Nginx/Traefik)
+    - Disable MySQL port exposure (remove port mapping)
+  </Card>
+
+  <Card title="Performance Tuning" icon="gauge">
+    - Increase MySQL connection pool size for high traffic
+    - Configure larger upload limits in Nginx
+    - Use SSD storage for database and media
+    - Consider CDN for media delivery
+  </Card>
+
+  <Card title="Monitoring" icon="chart-line">
+    - Monitor Docker container health
+    - Track disk space usage
+    - Review API logs in `file_manager_api_logs` volume
+    - Set up alerts for backup failures
+  </Card>
+
+  <Card title="Scaling" icon="up-right-and-down-left-from-center">
+    - Mount shared NFS/S3 for media storage
+    - Use external managed MySQL for HA
+    - Deploy API behind load balancer
+    - Implement Redis for session caching
+  </Card>
+</CardGroup>
+
+## Environment File (Optional)
+
+For easier configuration management, create a `.env` file:
+
+```bash .env
+# Database
+MYSQL_ROOT_PASSWORD=your_secure_password
+MYSQL_DATABASE=administradorMultimedia
+MYSQL_USER=apiuser
+MYSQL_PASSWORD=api_password
+
+# API
+NODE_ENV=production
+SECRET_KEY=your_generated_secret_key_here
+MEDIA_PATH=/usr/src/app/uploads
+```
+
+Then reference in `docker-compose.yml`:
+
+```yaml
+api:
+  environment:
+    SECRET_KEY: ${SECRET_KEY}
+    PASSWORD: ${MYSQL_PASSWORD}
+```
+
+## Next Steps
+
+<Card title="First Steps" icon="play" href="/getting-started/first-steps">
+  Learn how to log in and upload your first media file
+</Card>

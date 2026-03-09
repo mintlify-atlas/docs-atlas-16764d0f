@@ -1,0 +1,487 @@
+---
+title: First Steps
+description: Get started with Televisión Écija Media Manager - from login to uploading your first media file
+---
+
+## Logging In
+
+After deploying the application, you can access it through your web browser.
+
+<Steps>
+  <Step title="Navigate to the login page">
+    Open your web browser and go to:
+
+    ```
+    http://localhost
+    ```
+
+    (Or your server's IP address if deployed remotely)
+
+    You'll see the Televisión Écija Media Manager login screen.
+  </Step>
+
+  <Step title="Log in as administrator">
+    Use the default admin credentials:
+
+    <CodeGroup>
+    ```bash Credentials
+    Username: admin
+    Password: admin
+    ```
+    </CodeGroup>
+
+    <Warning>
+    **Security Notice**: These are default credentials for initial setup. Change them immediately after first login via the user management interface.
+    </Warning>
+
+    After successful login, you'll receive a JWT authentication token that's valid for 7 days.
+  </Step>
+
+  <Step title="Explore the dashboard">
+    Upon login, you'll see the main dashboard with:
+
+    - **Search bar**: Find media by title, description, or tags
+    - **Filter options**: Filter by media type, author, or publication year
+    - **Sort controls**: Order by most recent, oldest, or alphabetically
+    - **Upload button**: Add new media (visible for admin/moderator roles)
+    - **Media grid**: View all uploaded content with thumbnails
+  </Step>
+</Steps>
+
+## Understanding User Roles
+
+Televisión Écija has three user roles with different permissions:
+
+<AccordionGroup>
+  <Accordion title="Admin - Full Control" icon="crown">
+    **Permissions**:
+    - Upload new media files
+    - Edit all media metadata
+    - Delete any media
+    - Manage users (create, edit, delete)
+    - Create media types and locations
+    - Download files
+    - View all content
+
+    **Use case**: System administrators and content managers
+  </Accordion>
+
+  <Accordion title="Moderator - Content Management" icon="pen-to-square">
+    **Permissions**:
+    - Upload new media files
+    - Edit media metadata
+    - Create media types and locations
+    - Download files
+    - View all content
+
+    **Restrictions**:
+    - Cannot delete media
+    - Cannot manage users
+
+    **Use case**: Content creators and editors
+  </Accordion>
+
+  <Accordion title="Viewer - Read Only" icon="eye">
+    **Permissions**:
+    - View all content
+    - Search and filter media
+
+    **Restrictions**:
+    - Cannot upload files
+    - Cannot edit or delete
+    - Cannot download files
+    - Cannot manage users or settings
+
+    **Use case**: Researchers, viewers, and guests
+  </Accordion>
+</AccordionGroup>
+
+## Setting Up Media Types
+
+Before uploading content, configure media types to categorize your files.
+
+<Steps>
+  <Step title="Navigate to media types">
+    Look for the **Settings** or **Media Types** section in the navigation menu (admin/moderator access required).
+  </Step>
+
+  <Step title="Add media types">
+    Create categories that match your content library:
+
+    <CodeGroup>
+    ```text Example Media Types
+    - Cortometraje (Short Film)
+    - Documental (Documentary)
+    - Entrevista (Interview)
+    - Reportaje (Report)
+    - Evento (Event Coverage)
+    - Fotografía (Photography)
+    - Archivo Histórico (Historical Archive)
+    ```
+    </CodeGroup>
+
+    Click **Add Media Type** and enter the category name.
+  </Step>
+
+  <Step title="Configure storage locations">
+    Set up storage paths for organizing media across different disks or directories:
+
+    ```bash
+    /usr/src/app/uploads        # Main storage
+    /usr/src/app/archive        # Historical content
+    /usr/src/app/raw            # Unedited footage
+    ```
+
+    Navigate to **Storage Locations** and add paths as needed.
+  </Step>
+</Steps>
+
+## Uploading Your First Media File
+
+Now let's upload a video or image file to the media library.
+
+<Steps>
+  <Step title="Click the Upload button">
+    In the main dashboard, click the **Upload** button (usually in the top right corner).
+
+    <Note>
+    Only **admin** and **moderator** users can upload files.
+    </Note>
+  </Step>
+
+  <Step title="Fill in the upload form">
+    Complete the media information form:
+
+    <ParamField path="title" type="string" required>
+      Title of the media file
+
+      Example: "Desfile Semana Santa 2023"
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Detailed description of the content
+
+      Example: "Grabación del desfile procesional de Semana Santa en Écija, incluyendo las cofradías principales."
+    </ParamField>
+
+    <ParamField path="publication_year" type="number">
+      Year the content was created or published
+
+      Example: `2023`
+    </ParamField>
+
+    <ParamField path="media_type" type="select" required>
+      Select the appropriate media type from your configured categories
+
+      Example: "Evento"
+    </ParamField>
+
+    <ParamField path="location" type="select" required>
+      Choose storage location for the file
+
+      Example: `/usr/src/app/uploads`
+    </ParamField>
+
+    <ParamField path="tags" type="string">
+      Comma-separated tags for easier searching
+
+      Example: "semana santa,cofradía,écija,2023,procesión"
+    </ParamField>
+
+    <ParamField path="authors" type="multi-select">
+      Select users who authored or contributed to this content
+
+      Example: Select your username or camera operators
+    </ParamField>
+
+    <ParamField path="file" type="file" required>
+      Choose the media file to upload
+
+      Supported formats: Video (MP4, AVI, MOV), Images (JPG, PNG), Documents
+    </ParamField>
+  </Step>
+
+  <Step title="Submit the upload">
+    Click **Upload** to start the file transfer.
+
+    The API will:
+    1. Validate your permissions
+    2. Save the file to the selected storage location
+    3. Generate a unique filename with timestamp
+    4. Store metadata in the database
+    5. For videos: automatically generate a thumbnail from the first frame
+
+    <Note>
+    Large video files may take several minutes to upload depending on your network speed.
+    </Note>
+  </Step>
+
+  <Step title="Verify the upload">
+    After successful upload, you'll see your media file in the dashboard grid with:
+    - Thumbnail preview (auto-generated for videos)
+    - Title and description
+    - Upload date
+    - Media type badge
+
+    Click on the item to view full details and metadata.
+  </Step>
+</Steps>
+
+## Searching and Filtering Media
+
+With content uploaded, explore the search and filter capabilities.
+
+<Tabs>
+  <Tab title="Text Search">
+    Use the search bar to find media by:
+    - Title keywords
+    - Description text
+    - Tags
+
+    ```text Example Search
+    "semana santa"
+    ```
+
+    The search is case-insensitive and matches partial words.
+  </Tab>
+
+  <Tab title="Filter by Type">
+    Use the media type dropdown to show only:
+    - Cortometraje
+    - Documental
+    - Entrevista
+    - etc.
+
+    Combine with text search for refined results.
+  </Tab>
+
+  <Tab title="Filter by Author">
+    Select an author from the dropdown to view only media they contributed to.
+
+    Useful for tracking specific camera operators or journalists.
+  </Tab>
+
+  <Tab title="Sort Results">
+    Change the sort order:
+    - **Most Recent**: Newest uploads first (default)
+    - **Oldest**: Historical content first
+    - **A-Z**: Alphabetical by title
+    - **Z-A**: Reverse alphabetical
+  </Tab>
+</Tabs>
+
+## Viewing Media Details
+
+<Steps>
+  <Step title="Click on any media item">
+    In the grid view, click on a media card to open the detail view.
+  </Step>
+
+  <Step title="Review metadata">
+    The detail view shows:
+    - Full title and description
+    - Publication year
+    - Media type
+    - Storage location path
+    - All tags
+    - List of authors
+    - Upload date and last modified date
+    - File path and filename
+  </Step>
+
+  <Step title="View or download (admin only)">
+    Admin and moderator users can:
+    - **Preview**: View the media directly in browser (if supported)
+    - **Download**: Download the original file
+
+    The download endpoint is: `/api/files/:id/download`
+  </Step>
+</Steps>
+
+## Editing Media Metadata
+
+<Steps>
+  <Step title="Open media details">
+    Click on the media item you want to edit.
+  </Step>
+
+  <Step title="Click Edit (admin/moderator only)">
+    Look for an **Edit** button in the detail view.
+  </Step>
+
+  <Step title="Update fields">
+    Modify any of the following:
+    - Title
+    - Description
+    - Publication year
+    - Media type
+    - Tags
+    - Authors
+
+    <Note>
+    You cannot change the physical file or storage location after upload. To replace a file, delete and re-upload.
+    </Note>
+  </Step>
+
+  <Step title="Save changes">
+    Click **Save** to update the metadata.
+
+    The `date_updated` timestamp will be automatically updated.
+  </Step>
+</Steps>
+
+## Managing Users (Admin Only)
+
+As an administrator, you can create additional users and assign roles.
+
+<Steps>
+  <Step title="Navigate to User Management">
+    Look for **Users** or **User Management** in the navigation menu.
+  </Step>
+
+  <Step title="View existing users">
+    You'll see a list of all users with their:
+    - Username
+    - Role (admin, moderator, viewer)
+    - Options to edit or delete
+  </Step>
+
+  <Step title="Create new user">
+    Click **Add User** and provide:
+    - Username (must be unique)
+    - Password (minimum 4 characters)
+    - Role selection
+
+    <CodeGroup>
+    ```json Example User
+    {
+      "username": "camera_operator_1",
+      "password": "securePass123",
+      "role": "moderator"
+    }
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Edit or delete users">
+    - **Edit**: Change username, password, or role
+    - **Delete**: Remove user account (cannot delete yourself)
+
+    <Warning>
+    Deleting a user will remove their authorship associations but won't delete media they uploaded.
+    </Warning>
+  </Step>
+</Steps>
+
+## Viewing Statistics
+
+Access the statistics dashboard to monitor your media library:
+
+- **Total media count**: Number of files in the system
+- **By media type**: Breakdown of content categories
+- **By year**: Distribution across publication years
+- **Storage usage**: Disk space consumed by media files
+
+The API endpoint is `/api/stats` (requires authentication).
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Organize with Tags" icon="tags">
+    Use consistent, descriptive tags for better searchability:
+    - Location: "écija", "sevilla"
+    - Event type: "cofradía", "festival"
+    - Year: "2023", "2024"
+    - Format: "4k", "hd", "raw"
+  </Card>
+
+  <Card title="Complete Metadata" icon="circle-info">
+    Always fill in:
+    - Descriptive titles
+    - Detailed descriptions
+    - Publication year
+    - Authors/contributors
+    
+    This makes content discoverable and preserves historical context.
+  </Card>
+
+  <Card title="Regular Backups" icon="floppy-disk">
+    The system creates daily database backups in `./db/backups/`.
+    
+    Additionally:
+    - Back up the `uploads_data` Docker volume
+    - Test restore procedures periodically
+    - Store backups off-site for disaster recovery
+  </Card>
+
+  <Card title="User Management" icon="users">
+    - Change default passwords immediately
+    - Use strong passwords for all accounts
+    - Assign appropriate roles (least privilege)
+    - Review user list regularly
+    - Remove inactive accounts
+  </Card>
+</CardGroup>
+
+## Common Tasks Reference
+
+<AccordionGroup>
+  <Accordion title="How do I change my password?">
+    1. Navigate to User Management (admin only can change passwords)
+    2. Find your user account
+    3. Click Edit
+    4. Enter new password
+    5. Save changes
+
+    Regular users must ask an admin to reset their password.
+  </Accordion>
+
+  <Accordion title="How do I delete a media file?">
+    1. Open the media detail view
+    2. Click the **Delete** button (admin only)
+    3. Confirm the deletion
+
+    <Warning>
+    This action is permanent and will delete both the database record and the physical file from disk.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Can I bulk upload files?">
+    Currently, the web interface supports single-file uploads only.
+    
+    For bulk uploads, use the API directly:
+
+    ```bash
+    for file in *.mp4; do
+      curl -X POST http://localhost:3000/api/upload-content \
+        -H "Authorization: Bearer YOUR_TOKEN" \
+        -F "file=@$file" \
+        -F "title=$file" \
+        -F "media_type_id=1" \
+        -F "media_location_id=1"
+    done
+    ```
+  </Accordion>
+
+  <Accordion title="How do I download all media?">
+    To download all media files:
+
+    1. Access the Docker volume directly:
+    ```bash
+    docker run --rm -v file_manager_uploads_data:/data -v $(pwd):/backup alpine tar czf /backup/media-backup.tar.gz /data
+    ```
+
+    2. Or use the API to download individual files via `/api/files/:id/download`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api/auth/login">
+    Explore the REST API for automation and integrations
+  </Card>
+  <Card title="Advanced Configuration" icon="sliders" href="/getting-started/configuration">
+    Configure storage locations, backups, and security
+  </Card>
+</CardGroup>

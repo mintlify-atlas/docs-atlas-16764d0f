@@ -1,0 +1,258 @@
+---
+title: Installation
+description: Deploy Televisión Écija Media Manager using Docker Compose
+---
+
+## Prerequisites
+
+Before installing Televisión Écija Media Manager, ensure you have the following:
+
+- Docker Engine 20.10 or higher
+- Docker Compose V2 or higher
+- At least 2GB of available RAM
+- 10GB of free disk space (more recommended for media storage)
+
+## Quick Start
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Televisión Écija Media Manager repository to your server:
+
+    ```bash
+    git clone https://github.com/your-org/television-ecija.git
+    cd television-ecija
+    ```
+  </Step>
+
+  <Step title="Review Docker Compose configuration">
+    The `docker-compose.yml` file defines four services:
+
+    - **database**: MySQL 8.0 database for storing media metadata
+    - **api**: Node.js Express API backend
+    - **frontend**: Angular frontend served via Nginx
+    - **db_backup**: Automated daily database backups
+
+    <CodeGroup>
+    ```yaml docker-compose.yml
+    services:
+      database:
+        build:
+          context: ./db
+          dockerfile: Dockerfile
+        container_name: file_manager_mysql
+        restart: unless-stopped
+        environment:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: administradorMultimedia
+          MYSQL_USER: user
+          MYSQL_PASSWORD: root
+        ports:
+          - "3306:3306"
+        volumes:
+          - mysql_data:/var/lib/mysql
+          - ./db/backups:/backups
+        networks:
+          - file_manager_network
+
+      api:
+        build:
+          context: ./api
+          dockerfile: Dockerfile
+        container_name: file_manager_api
+        restart: unless-stopped
+        environment:
+          NODE_ENV: production
+          PORT: 3000
+          HOST: database
+          USER: root
+          PASSWORD: root
+          DATABASE: administradorMultimedia
+          SECRET_KEY: claveSecretaNoMandarANadie
+          MEDIA_PATH: /usr/src/app/uploads
+        ports:
+          - "3000:3000"
+        volumes:
+          - uploads_data:/usr/src/app/uploads
+          - api_logs:/usr/src/app/logs
+        depends_on:
+          - database
+        networks:
+          - file_manager_network
+
+      frontend:
+        build:
+          context: ./front
+          dockerfile: Dockerfile
+        container_name: file_manager_frontend
+        restart: unless-stopped
+        ports:
+          - "80:80"
+        depends_on:
+          - api
+        networks:
+          - file_manager_network
+
+      db_backup:
+        image: alpine:latest
+        container_name: file_manager_backup
+        restart: unless-stopped
+        volumes:
+          - mysql_data:/backup/mysql:ro
+          - ./db/backups:/backups
+        entrypoint: |
+          sh -c "
+          apk add --no-cache mysql-client
+          while true; do
+            mysqldump -h database -u root -proot administradorMultimedia > /backups/backup_\$(date +%Y%m%d_%H%M%S).sql
+            ls -tp /backups/*.sql 2>/dev/null | tail -n +8 | xargs -I {} rm -- {}
+            sleep 86400
+          done
+          "
+        depends_on:
+          - database
+        networks:
+          - file_manager_network
+
+    volumes:
+      mysql_data:
+        name: file_manager_mysql_data
+      uploads_data:
+        name: file_manager_uploads_data
+      api_logs:
+        name: file_manager_api_logs
+
+    networks:
+      file_manager_network:
+        name: file_manager_network
+        driver: bridge
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Start the application">
+    Launch all services using Docker Compose:
+
+    ```bash
+    docker-compose up -d
+    ```
+
+    This command will:
+    - Build the Docker images for each service
+    - Create the required volumes for persistent storage
+    - Start all containers in detached mode
+    - Initialize the MySQL database with the schema from `db/init.sql`
+  </Step>
+
+  <Step title="Verify deployment">
+    Check that all containers are running:
+
+    ```bash
+    docker-compose ps
+    ```
+
+    You should see four containers running:
+    - `file_manager_mysql`
+    - `file_manager_api`
+    - `file_manager_frontend`
+    - `file_manager_backup`
+
+    View the API logs to ensure it connected to the database:
+
+    ```bash
+    docker-compose logs api
+    ```
+
+    You should see: `CMS API running on port 3000`
+  </Step>
+
+  <Step title="Access the application">
+    Open your web browser and navigate to:
+
+    ```
+    http://localhost
+    ```
+
+    You should see the Televisión Écija Media Manager login page.
+  </Step>
+</Steps>
+
+## Port Configuration
+
+The default ports are:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Frontend | 80 | Angular web interface |
+| API | 3000 | REST API backend |
+| MySQL | 3306 | Database (exposed for backups/admin) |
+
+<Warning>
+If you already have services running on ports 80, 3000, or 3306, you'll need to modify the `docker-compose.yml` port mappings before starting.
+</Warning>
+
+## Persistent Data
+
+Docker volumes are created for persistent storage:
+
+- **file_manager_mysql_data**: Database storage
+- **file_manager_uploads_data**: Uploaded media files
+- **file_manager_api_logs**: API application logs
+- **./db/backups**: Daily database backups (mounted from host)
+
+## Stopping the Application
+
+To stop all services:
+
+```bash
+docker-compose down
+```
+
+To stop and remove all data (including volumes):
+
+<Warning>
+This will delete all uploaded media and database records!
+</Warning>
+
+```bash
+docker-compose down -v
+```
+
+## Troubleshooting
+
+### Database Connection Issues
+
+If the API fails to connect to the database, wait 10-15 seconds for MySQL to fully initialize:
+
+```bash
+docker-compose restart api
+```
+
+### Port Conflicts
+
+If you see "port already allocated" errors, modify the port mappings in `docker-compose.yml`:
+
+```yaml
+ports:
+  - "8080:80"  # Use port 8080 instead of 80
+```
+
+### View Container Logs
+
+To debug issues, check the logs for specific services:
+
+```bash
+docker-compose logs -f api      # API logs
+docker-compose logs -f database # Database logs
+docker-compose logs -f frontend # Frontend logs
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/getting-started/configuration">
+    Configure environment variables and database settings
+  </Card>
+  <Card title="First Steps" icon="play" href="/getting-started/first-steps">
+    Log in and upload your first media file
+  </Card>
+</CardGroup>

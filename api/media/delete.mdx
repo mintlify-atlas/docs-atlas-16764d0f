@@ -1,0 +1,215 @@
+---
+title: "Delete Media Item"
+api: "DELETE /api/files/:id"
+description: "Permanently delete a media item, including its file and thumbnail"
+---
+
+## Overview
+
+This endpoint permanently deletes a media item from the database and removes its associated files from the file system. This operation is **irreversible** and includes deletion of:
+
+- Database record from `media_items` table
+- Author associations from `media_author` table
+- Physical media file from storage
+- Generated thumbnail file (if exists)
+
+## Authentication
+
+Requires JWT token via `Authorization: Bearer <token>` header.
+
+### Permission Requirements
+
+- **Viewers**: Cannot delete content (403 Forbidden)
+- **Moderators**: Cannot delete content (403 Forbidden)
+- **Admins**: Can delete content
+
+## Path Parameters
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the media item to delete
+</ParamField>
+
+## SQL Queries
+
+### Retrieve Media Path
+
+```sql
+SELECT media_path FROM media_items WHERE id = ?
+```
+
+### Delete Author Associations
+
+```sql
+DELETE FROM media_author WHERE media_id = ?
+```
+
+### Delete Media Item
+
+```sql
+DELETE FROM media_items WHERE id = ?
+```
+
+## File System Operations
+
+1. **Delete main media file**: `fs.unlinkSync(media_path)`
+2. **Delete thumbnail**: `fs.unlinkSync(media_path + '_thumbnail.jpg')`
+
+Both operations check for file existence before attempting deletion.
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates successful deletion
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X DELETE https://api.example.com/api/files/42 \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+## Error Responses
+
+### 403 Forbidden (Insufficient Permissions)
+```json
+{
+  "error": "Solo admin puede eliminar"
+}
+```
+Returned when a non-admin user attempts to delete content.
+
+### 404 Not Found
+```json
+{
+  "error": "No existe"
+}
+```
+Returned when the specified media item ID does not exist in the database.
+
+### 401 Unauthorized
+```json
+{
+  "error": "Token requerido"
+}
+```
+Returned when no authentication token is provided.
+
+### 403 Forbidden (Invalid Token)
+```json
+{
+  "error": "Token inválido"
+}
+```
+Returned when the provided token is invalid or expired.
+
+## Deletion Process
+
+The endpoint follows this sequence:
+
+1. **Verify existence**: Query the database for the media item
+2. **Check not found**: Return 404 if the item doesn't exist
+3. **Delete author links**: Remove all entries from `media_author` junction table
+4. **Delete database record**: Remove the item from `media_items`
+5. **Delete media file**: Remove the physical file if it exists
+6. **Delete thumbnail**: Remove the generated thumbnail if it exists
+
+## Foreign Key Handling
+
+The `media_author` table has a foreign key constraint to `media_items`. The endpoint explicitly deletes author associations **before** deleting the media item to avoid constraint violations.
+
+```sql
+-- This must happen first
+DELETE FROM media_author WHERE media_id = ?
+
+-- Then this can succeed
+DELETE FROM media_items WHERE id = ?
+```
+
+## File System Safety
+
+- **Existence check**: Files are only deleted if they exist (`fs.existsSync`)
+- **No errors on missing files**: If files are already deleted, the operation continues
+- **Thumbnail cleanup**: The `_thumbnail.jpg` suffix is appended to the media path
+
+## Important Considerations
+
+### Irreversible Operation
+
+Once executed, this operation **cannot be undone**. The media file, database record, and all associations are permanently removed.
+
+### No Transaction Rollback
+
+The database deletions and file system operations are not wrapped in a transaction. If file deletion fails after database deletion, the database records will still be removed.
+
+### Orphaned Files
+
+If the database deletion succeeds but file system deletion fails, files may remain on disk without database references. Consider implementing:
+
+- File system verification before database deletion
+- Cleanup jobs to remove orphaned files
+- Transaction-like behavior with rollback capability
+
+### Related Data Impact
+
+Deleting a media item affects:
+
+- **Author statistics**: Count of media items per author will decrease
+- **Type statistics**: Count of media items per type will decrease
+- **Storage calculations**: Disk usage statistics may become inaccurate if files remain
+- **References**: Any external references to this media ID will be broken
+
+## Thumbnail File Naming
+
+Thumbnails are stored with the naming convention:
+```
+{media_path}_thumbnail.jpg
+```
+
+For example, if the media file is:
+```
+/var/media/1709989200000_video.mp4
+```
+
+The thumbnail will be:
+```
+/var/media/1709989200000_video.mp4_thumbnail.jpg
+```
+
+## Permission Matrix
+
+| Role      | Can Delete |
+|-----------|------------|
+| admin     | Yes        |
+| moderator | No         |
+| viewer    | No         |
+
+## Best Practices
+
+1. **Confirm before delete**: Implement confirmation dialogs in the UI
+2. **Log deletions**: Keep audit logs of deletion operations
+3. **Verify permissions**: Always check user role on the client side first
+4. **Handle orphans**: Run periodic cleanup jobs for orphaned files
+5. **Backup before delete**: Consider implementing soft deletes or archival
+
+## Alternative: Soft Delete
+
+Consider implementing a soft delete pattern by adding a `deleted_at` timestamp field instead of permanently removing records:
+
+```sql
+UPDATE media_items SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?
+```
+
+This would allow for:
+- Recovery of accidentally deleted items
+- Audit trails
+- Archival systems
+- Retention policy compliance

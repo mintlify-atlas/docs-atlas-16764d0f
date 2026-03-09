@@ -1,0 +1,386 @@
+---
+title: Location Management
+description: Manage storage locations and file system paths for media files
+---
+
+<Warning>
+  **Admin/Moderator Feature**
+  
+  Storage location management requires either `admin` or `moderator` role privileges. Deletion operations are restricted to administrators only.
+</Warning>
+
+The location management system controls where media files are physically stored on the server's file system. Each storage location represents a directory path where uploaded media items can be saved.
+
+## Understanding Storage Locations
+
+Storage locations define the file system directories that store your media files. When uploading content, users select a storage location, and the file is saved to that directory path.
+
+### Database Schema
+
+```sql
+CREATE TABLE media_locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    path TEXT
+);
+```
+
+Each media item references a location:
+
+```sql
+CREATE TABLE media_items (
+    ...
+    media_path TEXT,         /* -> /disk0/2023/grabacion.mp4 */
+    filename TEXT,           /* -> grabacion.mp4 */
+    media_location_id INT,   /* -> id:3 -> /disk0/2023/ */
+    ...
+    FOREIGN KEY (media_location_id) REFERENCES media_locations(id) ON DELETE CASCADE
+);
+```
+
+<Info>
+  **Cascade Deletion**: When a storage location is deleted, all associated media items in the database are also removed due to the `ON DELETE CASCADE` constraint.
+</Info>
+
+## Accessing Location Management
+
+Storage locations are managed through the administration dashboard:
+
+<Steps>
+  <Step title="Navigate to Dashboard">
+    Log in with an admin or moderator account and go to `/dashboard`.
+  </Step>
+  
+  <Step title="Locate Locations Section">
+    Scroll to the "Ubicaciones de Media" (Media Locations) section, which displays all configured storage paths in a table.
+  </Step>
+</Steps>
+
+Each location displays:
+- 📁 Path icon and full file system path
+- Edit button (pencil icon)
+- Delete button (trash icon, admin only)
+
+## Creating a Storage Location
+
+<Steps>
+  <Step title="Open Create Location Modal">
+    Click the **"Añadir Ruta"** (Add Path) button in the Locations section header.
+  </Step>
+  
+  <Step title="Enter Directory Path">
+    In the route modal, enter the full file system path where media files should be stored.
+    
+    **Examples**:
+    - `/var/media/archive/2024`
+    - `/mnt/storage/videos/documentaries`
+    - `~/media/uploads`
+    
+    <Warning>
+      Ensure the application has read/write permissions for the specified directory. The system will attempt to create the directory if it doesn't exist.
+    </Warning>
+  </Step>
+  
+  <Step title="Submit the Path">
+    Click the submit button to create the storage location.
+    
+    The system will:
+    1. Trim whitespace from the path
+    2. Create the directory if it doesn't exist (recursive)
+    3. Insert the location record into the database
+    4. Refresh the locations list
+  </Step>
+</Steps>
+
+### API Endpoint
+
+Location creation sends a POST request to `/api/locations`:
+
+```javascript
+POST /api/locations
+Headers: Authorization: Bearer <token>
+Body: {
+  "path": "/var/media/archive/2024"
+}
+```
+
+**Server-side logic** (`/home/daytona/workspace/source/api/main.js:932-951`):
+
+```javascript
+if (!fs.existsSync(newPath)) {
+    fs.mkdirSync(newPath, { recursive: true });
+}
+
+const [result] = await connection.promise().query(
+    "INSERT INTO media_locations (path) VALUES (?)",
+    [newPath]
+);
+```
+
+<Note>
+  **Permissions Required**: `admin` or `moderator` role
+</Note>
+
+## Editing a Storage Location
+
+You can update the path of an existing storage location.
+
+<Warning>
+  **Data Integrity Risk**
+  
+  Changing a location's path does NOT move existing files. Only the database path reference is updated. Ensure files are manually moved to the new location or this action may break media playback.
+</Warning>
+
+<Steps>
+  <Step title="Click Edit Button">
+    Find the location in the table and click the pencil icon (✏️) to open the edit modal.
+  </Step>
+  
+  <Step title="Modify the Path">
+    The modal will pre-populate with the current path. Edit the path as needed.
+  </Step>
+  
+  <Step title="Save Changes">
+    Submit the form to update the location.
+    
+    The system will:
+    1. Create the new directory if it doesn't exist
+    2. Update the database record
+    3. **NOT move existing files** (manual operation required)
+  </Step>
+</Steps>
+
+### API Endpoint
+
+```javascript
+PUT /api/locations/:id
+Headers: Authorization: Bearer <token>
+Body: {
+  "path": "/new/path/to/media"
+}
+```
+
+See `/home/daytona/workspace/source/api/main.js:954-979` for implementation.
+
+<Note>
+  **Permissions Required**: `admin` or `moderator` role
+</Note>
+
+## Deleting a Storage Location
+
+<Warning>
+  **DESTRUCTIVE OPERATION**
+  
+  Deleting a storage location will:
+  1. Remove all media item records from the database (CASCADE)
+  2. Delete the physical directory and ALL files within it
+  3. Permanently destroy data with NO recovery option
+  
+  **This operation cannot be undone.**
+</Warning>
+
+<Steps>
+  <Step title="Click Delete Button">
+    Locate the storage location and click the trash icon (🗑️).
+    
+    A confirmation modal appears with a severe warning:
+    
+    > ⚠ ATENCION: ESTO ELIMINARA TODO EL CONTENIDO DENTRO DE LA CARPETA, INCLUYENDO ARCHIVOS Y SUBCARPETAS
+  </Step>
+  
+  <Step title="Review and Confirm">
+    Carefully review the path being deleted. Click **"Sí, eliminar"** only if you are certain.
+  </Step>
+  
+  <Step title="Deletion Process">
+    The system executes:
+    
+    1. Removes the location from the database
+    2. Triggers CASCADE deletion of all media_items with that location_id
+    3. Removes the physical directory and all contents recursively
+  </Step>
+</Steps>
+
+### API Endpoint
+
+```javascript
+DELETE /api/locations/:id
+Headers: Authorization: Bearer <admin_token>
+```
+
+**Server-side logic** (`/home/daytona/workspace/source/api/main.js:982-1011`):
+
+```javascript
+// Delete from database first
+await connection.promise().query(
+    "DELETE FROM media_locations WHERE id = ?",
+    [locationId]
+);
+
+// Then remove physical directory
+if (fs.existsSync(folderPath)) {
+    fs.rmdirSync(folderPath, { recursive: true });
+}
+```
+
+<Note>
+  **Permissions Required**: `admin` role ONLY (moderators cannot delete locations)
+</Note>
+
+## Default Location Behavior
+
+If no storage locations exist, the system automatically creates a default location:
+
+```javascript
+const basePath = mediaPath || path.join(__dirname, "media");
+if (!fs.existsSync(basePath)) {
+    fs.mkdirSync(basePath, { recursive: true });
+}
+
+const [result] = await connection.promise().query(
+    "INSERT INTO media_locations (path) VALUES (?)",
+    [basePath]
+);
+```
+
+The `MEDIA_PATH` environment variable defines the default storage location (see `/home/daytona/workspace/source/api/main.js:33`).
+
+## Retrieving Storage Locations
+
+To fetch all configured storage locations:
+
+```javascript
+GET /api/locations
+Headers: Authorization: Bearer <token>
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "locations": [
+    { "id": 1, "path": "/var/media/archive" },
+    { "id": 2, "path": "/mnt/storage/videos" }
+  ]
+}
+```
+
+See `/home/daytona/workspace/source/api/main.js:899-929` for implementation.
+
+## File Upload Integration
+
+When uploading media, the system uses the selected location:
+
+```javascript
+// Fetch the base path for the selected location
+let [basePaths] = await connection.promise().query(
+    "SELECT path FROM media_locations WHERE id = ?",
+    [media_location_id]
+);
+
+// Create directory if needed
+if (!fs.existsSync(basePaths[0].path)) {
+    fs.mkdirSync(basePaths[0].path, { recursive: true });
+}
+
+// Build full file path
+const filename = Date.now() + "_" + file.originalname;
+const fullPath = path.join(basePaths[0].path, filename);
+
+// Save to database
+INSERT INTO media_items (media_path, filename, media_location_id, ...)
+VALUES (fullPath, filename, media_location_id, ...)
+```
+
+See `/home/daytona/workspace/source/api/main.js:191-216` for full upload logic.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Organize by Date" icon="calendar">
+    Create locations by year or month:
+    - `/media/2024/january`
+    - `/media/2024/february`
+    
+    This helps with archival and cleanup operations.
+  </Card>
+  
+  <Card title="Separate by Type" icon="folder-tree">
+    Use different locations for different content:
+    - `/media/documentaries`
+    - `/media/news`
+    - `/media/archive`
+  </Card>
+  
+  <Card title="Mount External Storage" icon="hard-drive">
+    Point locations to mounted volumes:
+    - `/mnt/nas/media`
+    - `/media/external-drive`
+    
+    Ensure mounts are persistent across reboots.
+  </Card>
+  
+  <Card title="Backup Before Deletion" icon="shield-check">
+    Always backup data before deleting a location. Use system-level tools like rsync or tar to create archives.
+  </Card>
+</CardGroup>
+
+## File System Permissions
+
+The Node.js API process must have:
+- **Read** permission to serve and download files
+- **Write** permission to upload and create thumbnails
+- **Execute** permission to traverse directories
+
+If you encounter permission errors, check:
+
+```bash
+# View current permissions
+ls -la /path/to/media
+
+# Set appropriate ownership (example)
+sudo chown -R nodejs-user:nodejs-group /path/to/media
+
+# Set permissions (example)
+sudo chmod -R 755 /path/to/media
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot Create Location - Permission Denied">
+    The application user lacks write permissions to create the directory.
+    
+    **Solution**: 
+    1. Ensure the path exists and is writable
+    2. Run `chmod` to grant appropriate permissions
+    3. Check the `MEDIA_PATH` environment variable
+  </Accordion>
+  
+  <Accordion title="Files Not Found After Upload">
+    This may occur if:
+    - The location path changed without moving files
+    - Directory was manually deleted
+    - Incorrect path separator used (use `/` not `\`)
+    
+    **Solution**: Verify the `media_path` column in `media_items` table matches actual file locations.
+  </Accordion>
+  
+  <Accordion title="403 Forbidden When Creating Location">
+    Only admin and moderator roles can create storage locations.
+    
+    **Solution**: Verify your role with `GET /api/user/role`
+  </Accordion>
+  
+  <Accordion title="Deletion Fails with Foreign Key Error">
+    This should not occur due to CASCADE constraints, but if it does:
+    
+    **Solution**: Manually delete associated media items first, or check database foreign key integrity.
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+- **Media Upload**: Select storage location during upload (see `/home/daytona/workspace/source/api/main.js:169-257`)
+- **File Download**: Files are served from their `media_path` (see `/home/daytona/workspace/source/api/main.js:390-407`)
+- **Thumbnail Generation**: Thumbnails saved alongside original files with `_thumbnail.jpg` suffix
+- **Statistics**: Storage usage calculated by scanning files in all locations (see `/home/daytona/workspace/source/api/main.js:613-633`)

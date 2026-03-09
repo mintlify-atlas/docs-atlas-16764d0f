@@ -1,0 +1,519 @@
+---
+title: "Roles & Permissions"
+description: "Understanding user roles, permissions, and access control in Televisión Écija Media Manager"
+---
+
+## Overview
+
+Televisión Écija Media Manager uses a **role-based access control (RBAC)** system to manage user permissions. There are three distinct roles, each with different levels of access to system features.
+
+## User Roles
+
+The system defines three roles in the database schema (`source/db/init.sql:10-11`):
+
+```sql
+rol VARCHAR(30) DEFAULT "viewer",
+CHECK (rol IN ("admin", "moderator", "viewer"))
+```
+
+### Role Hierarchy
+
+1. **Admin** - Full system access
+2. **Moderator** - Content management access
+3. **Viewer** - Read-only access
+
+<Info>
+The role hierarchy determines which features each user can access. Roles cannot be self-assigned - only admins can change user roles.
+</Info>
+
+## Admin Role
+
+Administrators have **complete control** over the system.
+
+### Admin Permissions
+
+The admin role includes all permissions (`front/src/services/auth.service.ts:8-17`):
+
+```typescript
+export interface UserPermissions {
+  canUpload: boolean;          // ✅ Yes
+  canDelete: boolean;          // ✅ Yes
+  canEdit: boolean;            // ✅ Yes
+  canDownload: boolean;        // ✅ Yes
+  canManageUsers: boolean;     // ✅ Yes
+  canViewAllContent: boolean;  // ✅ Yes
+  role: string;                // "admin"
+  level: number;               // Highest level
+}
+```
+
+### What Admins Can Do
+
+#### User Management (`/dashboard`)
+- **Create new users** with any role
+- **Edit existing users** (username, password, role)
+- **Delete users** (except the primary admin account)
+- **View all system users** and their roles
+
+<Warning>
+The primary admin account (ID: 1) **cannot be deleted** to prevent system lockout (`source/db/init.sql:57-62`).
+</Warning>
+
+#### Storage Management (`/dashboard`)
+- **Create storage locations** (media folders)
+- **Rename storage locations**
+- **Delete storage locations** (and all contained media)
+- **View full file paths** for all media
+
+#### Content Management
+- **Upload media** files with metadata
+- **Edit all media** (any user's content)
+- **Delete any media** files
+- **Download all files**
+- **View complete file paths**
+
+#### System Access
+- **Access admin dashboard** at `/dashboard`
+- **View system statistics**
+- **Manage content types**
+- **Full API access**
+
+### Admin Dashboard
+
+Admins have exclusive access to the dashboard (`front/src/app/dashboard/dashboard.ts:17-245`) with two main sections:
+
+#### 1. User Management Section
+
+```html
+<div class="users-section">
+  <h2>Usuarios del Sistema</h2>
+  <button (click)="openModal()">Crear Usuario</button>
+  
+  <table>
+    <!-- List of all users -->
+    <tr *ngFor="let user of users">
+      <td>{{ user.name }}</td>
+      <td>{{ user.rol }}</td>
+      <td>
+        <button (click)="onEdit(user.id)">Editar</button>
+        <button *ngIf="user.id !== 1" (click)="deleteUser(user.id)">Eliminar</button>
+      </td>
+    </tr>
+  </table>
+</div>
+```
+
+#### 2. Storage Locations Section
+
+```html
+<div class="locations-section">
+  <h2>Ubicaciones de Media</h2>
+  <button (click)="createFolder()">Añadir Ruta</button>
+  
+  <table>
+    <tr *ngFor="let loc of locations">
+      <td>📁 {{ loc.path }}</td>
+      <td>
+        <button (click)="renameFolder(loc)">Editar</button>
+        <button (click)="deleteFolder(loc)">Eliminar</button>
+      </td>
+    </tr>
+  </table>
+</div>
+```
+
+### Creating Users (Admin Only)
+
+Admins can create new users via the dashboard (`front/src/services/auth.service.ts:224-233`):
+
+```typescript
+createUser(userData: { 
+  username: string; 
+  password: string; 
+  role: string 
+}): Observable<any> {
+  return this.http.post<any>(`${this.API}/users`, userData, {
+    headers: {
+      'Authorization': `Bearer ${this.storage.getToken()}`
+    }
+  });
+}
+```
+
+### Default Admin Account
+
+The system comes with a default admin account (`source/db/init.sql:57-62`):
+
+- **Username**: `admin`
+- **Password**: (hashed with bcrypt)
+- **Role**: `admin`
+- **ID**: 1 (cannot be deleted)
+
+## Moderator Role
+
+Moderators can **manage content** but cannot administer users or system settings.
+
+### Moderator Permissions
+
+```typescript
+{
+  canUpload: true,           // ✅ Yes
+  canDelete: true,           // ✅ Yes
+  canEdit: true,             // ✅ Yes
+  canDownload: true,         // ✅ Yes
+  canManageUsers: false,     // ❌ No
+  canViewAllContent: true,   // ✅ Yes (with file paths)
+  role: "moderator",
+  level: 2
+}
+```
+
+### What Moderators Can Do
+
+#### Content Management
+- **Upload new media** files
+- **Edit all media** metadata and files
+- **Delete any media** files
+- **Download all files**
+- **View file paths** (storage locations)
+
+#### Browsing & Search
+- **Search and filter** all content
+- **View all media** in the system
+- **Access thumbnails** and previews
+
+### What Moderators Cannot Do
+
+❌ **No User Management**
+- Cannot create, edit, or delete users
+- Cannot access the admin dashboard (`/dashboard`)
+- Cannot view the user list
+
+❌ **No Storage Management**
+- Cannot create storage locations
+- Cannot rename or delete storage folders
+- Can only use existing storage locations
+
+❌ **No System Administration**
+- Cannot change other users' roles
+- Cannot manage content types
+- Cannot view system-level settings
+
+<Note>
+Moderators are intended for trusted users who manage media content but don't need full administrative access.
+</Note>
+
+## Viewer Role
+
+Viewers have **read-only access** to browse and download content.
+
+### Viewer Permissions
+
+```typescript
+{
+  canUpload: false,          // ❌ No
+  canDelete: false,          // ❌ No
+  canEdit: false,            // ❌ No
+  canDownload: true,         // ✅ Yes
+  canManageUsers: false,     // ❌ No
+  canViewAllContent: true,   // ✅ Yes (but no file paths)
+  role: "viewer",
+  level: 1
+}
+```
+
+### What Viewers Can Do
+
+#### Content Browsing
+- **Browse all media** in the system
+- **Search and filter** content
+- **View media details** (title, description, tags, dates)
+- **View thumbnails** and previews
+
+#### Downloading
+- **Download files** they have access to
+- **Save media** to their local device
+
+### What Viewers Cannot Do
+
+❌ **No Content Creation**
+- Cannot upload new files
+- The "Subir Contenido" button is **disabled** (`front/src/app/index/page.html:100-109`)
+
+❌ **No Content Modification**
+- Cannot edit media metadata
+- Cannot replace files
+- No access to the edit modal
+
+❌ **No Content Deletion**
+- Cannot delete any media files
+- No delete button appears on media cards
+
+❌ **No File Path Visibility**
+- Cannot see storage locations
+- No access to internal file structure
+
+❌ **No Administrative Access**
+- Cannot access `/dashboard`
+- Cannot view or manage users
+- Cannot create storage locations
+
+<Info>
+Viewers are perfect for stakeholders who need to browse and download content but shouldn't modify the media library.
+</Info>
+
+### Default Viewer Account
+
+The system includes a default viewer account for testing (`source/db/init.sql:63-68`):
+
+- **Username**: `viewer`
+- **Password**: (hashed with bcrypt)
+- **Role**: `viewer`
+
+## Permission Checking
+
+The frontend dynamically checks permissions before rendering UI elements.
+
+### Permission Check Service
+
+The `AuthService` provides permission checking methods (`front/src/services/auth.service.ts:149-183`):
+
+```typescript
+// Check specific permission
+hasPermission(permission: keyof UserPermissions): boolean {
+  const user = this.getCurrentUser();
+  if (!user || !user.permissions) {
+    this.refreshUserRole().subscribe();
+    return false;
+  }
+  return user.permissions[permission] === true;
+}
+
+// Check role
+isAdmin(): boolean {
+  return this.hasRole('admin');
+}
+
+isModerator(): boolean {
+  return this.hasRole('moderator');
+}
+
+isViewer(): boolean {
+  return this.hasRole('viewer');
+}
+
+// Check access level
+hasAccessLevel(requiredLevel: number): boolean {
+  const user = this.getCurrentUser();
+  if (!user || !user.permissions) return false;
+  return user.permissions.level >= requiredLevel;
+}
+```
+
+### Dynamic UI Rendering
+
+Buttons and features are conditionally rendered based on permissions:
+
+```typescript
+// File card component (lines 139-147)
+this.auth.refreshUserRole().subscribe(user => {
+  this.canViewPath = !!user?.permissions?.canUpload;
+  this.canDownloadContent = !!user?.permissions?.canDownload;
+  this.canEditContent = !!user?.permissions?.canEdit;
+  this.canDeleteContent = !!user?.permissions?.canDelete;
+  
+  this.cdr.markForCheck();
+});
+```
+
+```html
+<!-- Upload button (index page) -->
+<button [class]="canUploadContent ? 'a-admin' : 'a-admin disabled'"
+        (click)="canUploadContent ? openModal() : ''">
+  Subir Contenido
+</button>
+
+<!-- Action buttons (file card) -->
+<button *ngIf="canDownloadContent" (click)="onDownload($event)">Download</button>
+<button *ngIf="canEditContent" (click)="onEdit($event)">Edit</button>
+<button *ngIf="canDeleteContent" (click)="onDelete($event)">Delete</button>
+```
+
+## Role Guard
+
+Protected routes use the `roleGuard` to enforce role-based access (`front/src/app/guards/role-guard.ts:7-65`):
+
+```typescript
+export const roleGuard = (allowedRoles: string[]): CanActivateFn => {
+  return (route, state) => {
+    const authService = inject(AuthService);
+    const router = inject(Router);
+    
+    // Check if authenticated
+    if (!authService.isAuthenticated()) {
+      router.navigate(['/login']);
+      return false;
+    }
+    
+    // Check if role is allowed
+    const userRole = authService.getRole();
+    if (userRole && allowedRoles.includes(userRole)) {
+      return true;
+    }
+    
+    // Redirect based on actual role
+    return authService.refreshUserRole().pipe(
+      map(user => {
+        if (user && allowedRoles.includes(user.rol)) {
+          return true;
+        }
+        redirectBasedOnRole(user.rol, router);
+        return false;
+      })
+    );
+  };
+};
+```
+
+### Route Protection Example
+
+```typescript
+// Admin-only route
+{
+  path: 'dashboard',
+  component: DashboardPage,
+  canActivate: [roleGuard(['admin'])]
+}
+
+// Moderator and Admin route
+{
+  path: 'upload',
+  component: UploadPage,
+  canActivate: [roleGuard(['admin', 'moderator'])]
+}
+```
+
+## Permission Matrix
+
+| Feature | Admin | Moderator | Viewer |
+|---------|-------|-----------|--------|
+| **Authentication** |
+| Login | ✅ | ✅ | ✅ |
+| Logout | ✅ | ✅ | ✅ |
+| Change own password | ✅ | ✅ | ✅ |
+| **Browsing** |
+| View media grid | ✅ | ✅ | ✅ |
+| Search content | ✅ | ✅ | ✅ |
+| Filter by type | ✅ | ✅ | ✅ |
+| View thumbnails | ✅ | ✅ | ✅ |
+| View file paths | ✅ | ✅ | ❌ |
+| **Content Management** |
+| Upload files | ✅ | ✅ | ❌ |
+| Download files | ✅ | ✅ | ✅ |
+| Edit metadata | ✅ | ✅ | ❌ |
+| Delete files | ✅ | ✅ | ❌ |
+| **User Management** |
+| View user list | ✅ | ❌ | ❌ |
+| Create users | ✅ | ❌ | ❌ |
+| Edit users | ✅ | ❌ | ❌ |
+| Delete users | ✅ | ❌ | ❌ |
+| Change roles | ✅ | ❌ | ❌ |
+| **Storage Management** |
+| View locations | ✅ | ✅ (usage only) | ❌ |
+| Create locations | ✅ | ❌ | ❌ |
+| Edit locations | ✅ | ❌ | ❌ |
+| Delete locations | ✅ | ❌ | ❌ |
+| **System Access** |
+| Admin dashboard | ✅ | ❌ | ❌ |
+| System statistics | ✅ | ✅ | ✅ |
+| Content types | ✅ (manage) | ✅ (view) | ✅ (view) |
+
+## Changing User Roles
+
+Only **admins** can change user roles.
+
+### How to Change a User's Role
+
+1. Navigate to `/dashboard` (admin only)
+2. Find the user in the **"Usuarios del Sistema"** table
+3. Click the **"Editar"** button next to the user
+4. Select the new role from the dropdown:
+   - `admin`
+   - `moderator`
+   - `viewer`
+5. Click **"Guardar Cambios"** to apply
+
+The update is sent to `/api/users/{id}` via PUT (`front/src/services/auth.service.ts:236-245`).
+
+<Warning>
+**Be cautious when assigning admin roles** - admins have complete system access including the ability to delete other users and system data.
+</Warning>
+
+## Self-Registration
+
+New users can register themselves at `/register`, but they are **automatically assigned the viewer role**:
+
+```typescript
+// Registration (auth.service.ts:60-70)
+register(username: string, password: string) {
+  return this.http.post<any>(`${this.API}/register`, { username, password })
+    .pipe(
+      tap(response => {
+        if (response.success) {
+          this.storage.setUserData(response);
+          this.currentUser = response;
+        }
+      })
+    );
+}
+```
+
+<Info>
+Self-registered users start as **viewers**. Contact an administrator to upgrade to moderator or admin.
+</Info>
+
+## Troubleshooting
+
+### Cannot Access Feature
+
+- **Check your role** - Verify you have the necessary permissions
+- **Contact admin** - Request a role upgrade if needed
+- **Log out and back in** - Refresh your session after role changes
+
+### Upload Button Disabled
+
+- **Cause**: You have the viewer role
+- **Solution**: Request moderator or admin role from your administrator
+
+### Cannot See Dashboard
+
+- **Cause**: Only admins can access `/dashboard`
+- **Solution**: You must have the admin role to access this page
+
+### Role Change Not Applied
+
+- **Cause**: Browser cache or session not refreshed
+- **Solution**: Log out completely, clear browser cache, and log back in
+
+### Permission Denied Errors
+
+- **Check the browser console** for detailed permission errors
+- **Verify your JWT token** hasn't expired (7-day limit)
+- **Contact administrator** if role appears incorrect
+
+## Best Practices
+
+### For Administrators
+
+- **Use least privilege** - Only grant necessary permissions
+- **Regular audits** - Review user roles periodically
+- **Protect admin accounts** - Use strong passwords for admin users
+- **Document role assignments** - Keep records of who has which roles
+- **Don't share accounts** - Create separate accounts for each user
+
+### For All Users
+
+- **Understand your role** - Know what you can and cannot do
+- **Request upgrades properly** - Contact admins through official channels
+- **Report issues** - Notify admins if permissions seem incorrect
+- **Use features appropriately** - Don't attempt to bypass restrictions
