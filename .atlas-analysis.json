@@ -1,0 +1,131 @@
+{
+  "projectType": "saas",
+  "projectName": "Televisión Écija Media Manager",
+  "projectDescription": "A self-hosted media management platform for organizing, searching, and managing multimedia content across distributed storage locations.",
+  "theme": "maple",
+  "primaryColor": "#E63946",
+  "lightColor": "#F4A3A8",
+  "darkColor": "#A4161A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "features",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/installation",
+              "getting-started/configuration",
+              "getting-started/first-steps"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "user-guide/authentication",
+              "user-guide/uploading-files",
+              "user-guide/searching-filtering",
+              "user-guide/managing-media",
+              "user-guide/roles-permissions"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "admin/user-management",
+              "admin/location-management",
+              "admin/media-types",
+              "admin/statistics"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment-variables",
+              "deployment/database-setup",
+              "deployment/backup-restore"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/login",
+              "api/auth/register",
+              "api/auth/logout"
+            ]
+          },
+          {
+            "group": "Media Management",
+            "pages": [
+              "api/media/upload",
+              "api/media/list",
+              "api/media/get",
+              "api/media/update",
+              "api/media/delete",
+              "api/media/download",
+              "api/media/thumbnail"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "api/admin/users",
+              "api/admin/locations",
+              "api/admin/media-types",
+              "api/admin/stats"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Role-based access control (Admin, Moderator, Viewer)",
+    "Distributed media storage management",
+    "Advanced search and filtering",
+    "Video thumbnail generation",
+    "Multi-user authentication with JWT",
+    "Automatic database backups",
+    "Docker-based deployment",
+    "RESTful API"
+  ],
+  "publicApiSurface": [
+    "POST /api/login",
+    "POST /api/register",
+    "POST /api/logout",
+    "POST /api/upload-content",
+    "GET /api/files",
+    "GET /api/files/paginated",
+    "GET /api/files/:id",
+    "GET /api/files/:id/download",
+    "GET /api/files/:id/thumbnail",
+    "PUT /api/files/:id",
+    "DELETE /api/files/:id",
+    "GET /api/users",
+    "POST /api/users",
+    "PUT /api/users/:id",
+    "DELETE /api/users/:id",
+    "GET /api/locations",
+    "POST /api/locations",
+    "PUT /api/locations/:id",
+    "DELETE /api/locations/:id",
+    "GET /api/media-type",
+    "POST /api/media-type",
+    "GET /api/stats",
+    "GET /api/user/role"
+  ]
+}
